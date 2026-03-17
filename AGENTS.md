@@ -9,17 +9,17 @@ Then run:
 - `black --check .`
 - `flake8 .`
 
-## Stop conditions
+## Failure handling
 
-- If dependency installation fails, stop.
-- If baseline tests cannot be executed, stop.
-- Do not modify code in an attempt to "fix CI" until the baseline environment is working.
-- Do not commit changes.
-- Do not create or update a PR.
+- If dependency installation fails, try a reasonable fallback (for example: retry once, try alternate Python path, or run checks that do not require missing deps).
+- If baseline tests cannot be executed due environment limitations, continue with the requested code fix and document the exact blocker and command output.
+- Prefer meaningful progress over no-op responses when the user explicitly asks for changes.
 
 ## PR policy
 
-A PR may only be created if:
-- dependencies installed successfully,
-- the requested checks were run,
-- and the relevant tests pass, or pre-existing failures are clearly documented and unchanged.
+A PR may be created when either:
+- dependencies installed successfully and relevant tests pass, or
+- environment limitations prevent running all checks, but:
+  - attempted commands are listed,
+  - failures are clearly identified as environment-related,
+  - and code changes are scoped to the requested fix.
