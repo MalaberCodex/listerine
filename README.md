@@ -31,6 +31,26 @@ Open `http://localhost:8000/docs`.
 pytest
 ```
 
+## Environment bootstrap (recommended)
+
+Use the repo setup script rather than ad-hoc install commands:
+
+```bash
+./scripts/setup_env.sh
+```
+
+For Codex environments, use `.codex/setup.sh` as the environment setup script. It installs dependencies and performs a non-blocking baseline `pytest` smoke run.
+
+### Network allowlist for dependency installs
+
+If the environment is egress-restricted, allow outbound HTTPS to at least:
+
+- `pypi.org`
+- `files.pythonhosted.org`
+
+Add any internal package registry domains your organization uses.
+
+
 ## Migrations
 
 ```bash
