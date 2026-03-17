@@ -12,19 +12,5 @@ else
 fi
 
 "${PY}" --version
-"${PY}" -m pip install --upgrade pip
-
-REQS=$("${PY}" - <<'PY'
-import tomllib
-from pathlib import Path
-p=Path('pyproject.toml')
-data=tomllib.loads(p.read_text())
-reqs=[]
-reqs.extend(data['project'].get('dependencies', []))
-reqs.extend(data['project'].get('optional-dependencies', {}).get('dev', []))
-print(' '.join(reqs))
-PY
-)
-
-# Install direct runtime+dev dependencies from pyproject (no editable build backend needed).
-"${PY}" -m pip install ${REQS}
+"${PY}" -m pip install --upgrade pip setuptools wheel
+"${PY}" -m pip install -e .[dev]

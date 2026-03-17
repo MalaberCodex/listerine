@@ -39,7 +39,7 @@ Use the repo setup script rather than ad-hoc install commands:
 ./scripts/setup_env.sh
 ```
 
-For Codex environments, use `.codex/setup.sh` as the environment setup script. It installs dependencies and performs a non-blocking baseline `pytest` smoke run.
+For Codex environments, use `.codex/setup.sh` as the environment setup script.
 
 ### Network allowlist for dependency installs
 
