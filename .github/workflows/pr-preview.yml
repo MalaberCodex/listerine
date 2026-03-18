@@ -1,4 +1,4 @@
-name: PR Preview
+name: PR Preview Screenshots
 
 on:
   pull_request:
@@ -16,6 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PYTHON_VERSION: '3.14'
+      NODE_VERSION: '22'
       DATABASE_URL: sqlite+aiosqlite:///./preview.db
       PREVIEW_MODE: 'true'
       PREVIEW_SEED_DATA: 'true'
@@ -24,7 +25,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
       - run: ./scripts/setup_env.sh
+      - run: npm install --no-save playwright
+      - run: npx playwright install --with-deps chromium
       - name: Start preview app
         run: |
           PYTHONPATH=. uvicorn app.main:app --host 127.0.0.1 --port 8000 > preview-server.log 2>&1 &
@@ -40,24 +46,17 @@ jobs:
           echo "Preview app never became healthy" >&2
           cat preview-server.log >&2
           exit 1
-      - name: Generate preview bundle
-        run: PYTHONPATH=. python scripts/generate_preview_bundle.py
-      - name: Upload preview artifacts
+      - name: Run browser e2e screenshot flow
+        run: node scripts/capture_preview_screenshots.mjs
+      - name: Upload screenshots
         uses: actions/upload-artifact@v4
         with:
-          name: pr-preview-bundle
+          name: pr-preview-screenshots
           path: |
-            preview-artifacts
+            e2e-artifacts
             preview-server.log
       - name: Add job summary
-        run: |
-          {
-            echo "## PR preview bundle"
-            echo
-            echo "A seeded preview artifact was generated from this pull request."
-            echo
-            echo "Download the **pr-preview-bundle** artifact from this workflow run to inspect the rendered HTML and authenticated API responses."
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: cat e2e-artifacts/summary.md >> "$GITHUB_STEP_SUMMARY"
       - name: Stop preview app
         if: always()
         run: |
