@@ -1,11 +1,18 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 
 from jose import jwt
 from starlette.requests import Request
 
-from app.api.v1.routes.auth import _origin_for_request, _password_auth_disabled, _rp_id_for_request
+from app.admin import SessionAdminAuth
+from app.api.v1.routes.auth import (
+    _apply_bootstrap_admin_email,
+    _origin_for_request,
+    _password_auth_disabled,
+    _rp_id_for_request,
+)
 from app.core.config import settings
 from app.core.security import create_access_token, hash_password, verify_password
 from app.services.websocket_hub import WebSocketHub
@@ -22,6 +29,26 @@ class DummyWebSocket:
 
     async def send_json(self, event: dict) -> None:
         self.events.append(event)
+
+
+class DummySessionContext:
+    async def __aenter__(self) -> object:
+        return object()
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        return None
+
+
+class DummyDB:
+    def __init__(self) -> None:
+        self.commit_calls = 0
+        self.refresh_calls = 0
+
+    async def commit(self) -> None:
+        self.commit_calls += 1
+
+    async def refresh(self, user) -> None:
+        self.refresh_calls += 1
 
 
 def test_security_helpers_round_trip() -> None:
@@ -95,6 +122,69 @@ def test_get_session_user_clears_invalid_session_payloads() -> None:
 
     assert asyncio.run(_get_session_user(request, None)) is None
     assert request.session == {}
+
+
+def test_admin_auth_backend_redirects_and_allows(monkeypatch) -> None:
+    auth = SessionAdminAuth()
+
+    login_request = Request({"type": "http", "headers": [], "session": {}})
+    login_response = asyncio.run(auth.login(login_request))
+    assert login_response.headers["location"] == "/login"
+
+    logout_request = Request({"type": "http", "headers": [], "session": {"access_token": "x"}})
+    logout_response = asyncio.run(auth.logout(logout_request))
+    assert logout_request.session == {}
+    assert logout_response.headers["location"] == "/login"
+
+    monkeypatch.setattr("app.admin.AsyncSessionLocal", lambda: DummySessionContext())
+
+    anon_request = Request({"type": "http", "headers": [], "session": {}})
+
+    async def _anon_user(request, session) -> None:
+        return None
+
+    monkeypatch.setattr("app.admin._get_session_user", _anon_user)
+    anon_response = asyncio.run(auth.authenticate(anon_request))
+    assert anon_response.headers["location"] == "/login"
+
+    non_admin_request = Request({"type": "http", "headers": [], "session": {}})
+
+    async def _non_admin_user(request, session) -> SimpleNamespace:
+        return SimpleNamespace(is_admin=False)
+
+    monkeypatch.setattr("app.admin._get_session_user", _non_admin_user)
+    non_admin_response = asyncio.run(auth.authenticate(non_admin_request))
+    assert non_admin_response.headers["location"] == "/"
+
+    admin_request = Request({"type": "http", "headers": [], "session": {}})
+
+    async def _admin_user(request, session) -> SimpleNamespace:
+        return SimpleNamespace(is_admin=True)
+
+    monkeypatch.setattr("app.admin._get_session_user", _admin_user)
+    assert asyncio.run(auth.authenticate(admin_request)) is True
+
+
+def test_bootstrap_admin_email_helper_respects_config(monkeypatch) -> None:
+    db = DummyDB()
+    user = SimpleNamespace(email="admin@example.com", is_admin=False)
+
+    monkeypatch.setattr("app.api.v1.routes.auth.settings.bootstrap_admin_email", None)
+    assert asyncio.run(_apply_bootstrap_admin_email(db, user)) is user
+    assert db.commit_calls == 0
+
+    monkeypatch.setattr(
+        "app.api.v1.routes.auth.settings.bootstrap_admin_email", "other@example.com"
+    )
+    assert asyncio.run(_apply_bootstrap_admin_email(db, user)) is user
+    assert db.commit_calls == 0
+
+    monkeypatch.setattr(
+        "app.api.v1.routes.auth.settings.bootstrap_admin_email", "admin@example.com"
+    )
+    user.is_admin = True
+    assert asyncio.run(_apply_bootstrap_admin_email(db, user)) is user
+    assert db.commit_calls == 0
 
 
 def test_passkey_request_helpers() -> None:

@@ -61,6 +61,22 @@ def _password_auth_disabled() -> HTTPException:
     )
 
 
+async def _apply_bootstrap_admin_email(db: AsyncSession, user: User) -> User:
+    if settings.bootstrap_admin_email is None:
+        return user
+
+    if user.email.casefold() != str(settings.bootstrap_admin_email).casefold():
+        return user
+
+    if user.is_admin:
+        return user
+
+    user.is_admin = True
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
 @router.post("/register/options")
 async def begin_passkey_registration(
     payload: PasskeyRegisterStartRequest, request: Request, db: AsyncSession = Depends(get_db)
@@ -127,6 +143,7 @@ async def finish_passkey_registration(
     db.add(user)
     await db.commit()
     await db.refresh(user)
+    user = await _apply_bootstrap_admin_email(db, user)
 
     request.session.pop(_REGISTER_SESSION_KEY, None)
     request.session["access_token"] = create_access_token(user.id)
@@ -190,6 +207,7 @@ async def finish_passkey_login(
     user.passkey_sign_count = verified.new_sign_count
     await db.commit()
     await db.refresh(user)
+    user = await _apply_bootstrap_admin_email(db, user)
 
     request.session.pop(_LOGIN_SESSION_KEY, None)
     token = create_access_token(user.id)

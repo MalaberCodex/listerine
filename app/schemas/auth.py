@@ -28,6 +28,7 @@ class UserOut(ORMModel):
     id: UUID
     email: EmailStr
     display_name: str
+    is_admin: bool
     is_active: bool
 
 

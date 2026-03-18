@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import ensure_household_member, get_current_user
+from app.api.deps import ensure_admin_user, get_current_user
 from app.core.database import get_db
 from app.models import Category, User
 from app.schemas.domain import CategoryCreate, CategoryOut
@@ -12,29 +12,33 @@ from app.schemas.domain import CategoryCreate, CategoryOut
 router = APIRouter(tags=["categories"])
 
 
-@router.post("/households/{household_id}/categories", response_model=CategoryOut)
+@router.post("/categories", response_model=CategoryOut)
 async def create_category(
-    household_id: UUID,
     payload: CategoryCreate,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Category:
-    await ensure_household_member(db, household_id, user.id)
-    category = Category(household_id=household_id, name=payload.name, color=payload.color)
+    ensure_admin_user(user)
+    category = Category(
+        household_id=None,
+        name=payload.name,
+        color=payload.color,
+        sort_order=payload.sort_order,
+    )
     db.add(category)
     await db.commit()
     await db.refresh(category)
     return category
 
 
-@router.get("/households/{household_id}/categories", response_model=list[CategoryOut])
+@router.get("/categories", response_model=list[CategoryOut])
 async def list_categories(
-    household_id: UUID,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[Category]:
-    await ensure_household_member(db, household_id, user.id)
-    result = await db.execute(select(Category).where(Category.household_id == household_id))
+    result = await db.execute(
+        select(Category).order_by(Category.sort_order.asc(), Category.name.asc())
+    )
     return list(result.scalars().all())
 
 
@@ -45,11 +49,12 @@ async def update_category(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Category:
+    ensure_admin_user(user)
     result = await db.execute(select(Category).where(Category.id == category_id))
     category = result.scalar_one()
-    await ensure_household_member(db, category.household_id, user.id)
     category.name = payload.name
     category.color = payload.color
+    category.sort_order = payload.sort_order
     await db.commit()
     await db.refresh(category)
     return category
@@ -61,9 +66,9 @@ async def delete_category(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
+    ensure_admin_user(user)
     result = await db.execute(select(Category).where(Category.id == category_id))
     category = result.scalar_one()
-    await ensure_household_member(db, category.household_id, user.id)
     await db.delete(category)
     await db.commit()
     return {"message": "deleted"}

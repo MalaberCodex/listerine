@@ -9,7 +9,7 @@ from app.core.security import create_access_token
 from app.models import User
 
 
-async def _create_user(email: str, with_passkey: bool = True) -> UUID:
+async def _create_user(email: str, with_passkey: bool = True, is_admin: bool = False) -> UUID:
     async with AsyncSessionLocal() as session:
         user = User(
             email=email,
@@ -20,6 +20,7 @@ async def _create_user(email: str, with_passkey: bool = True) -> UUID:
             ),
             passkey_public_key=b"public-key" if with_passkey else None,
             passkey_sign_count=1 if with_passkey else 0,
+            is_admin=is_admin,
         )
         session.add(user)
         await session.commit()
@@ -35,8 +36,8 @@ async def _delete_user(user_id: UUID) -> None:
         await session.commit()
 
 
-def _auth_headers(client, email: str) -> dict[str, str]:
-    user_id = asyncio.run(_create_user(email))
+def _auth_headers(client, email: str, is_admin: bool = False) -> dict[str, str]:
+    user_id = asyncio.run(_create_user(email, is_admin=is_admin))
     client.cookies.clear()
     return {"Authorization": f"Bearer {create_access_token(user_id)}"}
 
@@ -57,8 +58,10 @@ def test_full_flow(client) -> None:
     assert client.get("/health").status_code == 200
     assert client.get("/api").status_code == 200
 
-    headers = _auth_headers(client, f"{uuid4()}@example.com")
-    assert client.get("/api/v1/auth/me", headers=headers).status_code == 200
+    headers = _auth_headers(client, f"{uuid4()}@example.com", is_admin=True)
+    me = client.get("/api/v1/auth/me", headers=headers)
+    assert me.status_code == 200
+    assert me.json()["is_admin"] is True
 
     household = client.post("/api/v1/households", json={"name": "Home"}, headers=headers).json()
     household_id = household["id"]
@@ -77,22 +80,20 @@ def test_full_flow(client) -> None:
     assert client.get(f"/api/v1/lists/{list_id}", headers=headers).status_code == 200
 
     category = client.post(
-        f"/api/v1/households/{household_id}/categories",
-        json={"name": "Produce", "color": "green"},
+        "/api/v1/categories",
+        json={"name": "Produce", "color": "green", "sort_order": 1},
         headers=headers,
     ).json()
 
-    assert (
-        client.get(f"/api/v1/households/{household_id}/categories", headers=headers).status_code
-        == 200
-    )
+    assert client.get("/api/v1/categories", headers=headers).status_code == 200
 
     updated_category = client.patch(
         f"/api/v1/categories/{category['id']}",
-        json={"name": "Dairy", "color": "blue"},
+        json={"name": "Dairy", "color": "blue", "sort_order": 0},
         headers=headers,
     ).json()
     assert updated_category["name"] == "Dairy"
+    assert updated_category["sort_order"] == 0
 
     item = client.post(
         f"/api/v1/lists/{list_id}/items",
@@ -177,11 +178,19 @@ def test_auth_and_access_error_paths(client) -> None:
         ).status_code
         == 400
     )
+    assert (
+        client.post(
+            f"/api/v1/lists/{list_res['id']}/items",
+            json={"name": "Milk", "category_id": str(uuid4())},
+            headers=headers,
+        ).status_code
+        == 400
+    )
     assert client.get(f"/api/v1/lists/{uuid4()}", headers=headers).status_code == 404
 
 
 def test_cross_household_forbidden(client) -> None:
-    h1 = _auth_headers(client, f"{uuid4()}@example.com")
+    h1 = _auth_headers(client, f"{uuid4()}@example.com", is_admin=True)
     h2 = _auth_headers(client, f"{uuid4()}@example.com")
 
     household = client.post("/api/v1/households", json={"name": "Home"}, headers=h1).json()
@@ -191,21 +200,25 @@ def test_cross_household_forbidden(client) -> None:
     ).json()
     lid = grocery_list["id"]
     category = client.post(
-        f"/api/v1/households/{hid}/categories",
-        json={"name": "Secret", "color": "red"},
+        "/api/v1/categories",
+        json={"name": "Secret", "color": "red", "sort_order": 0},
         headers=h1,
     ).json()
 
     assert client.get(f"/api/v1/households/{hid}", headers=h2).status_code == 403
     assert client.get(f"/api/v1/households/{hid}/lists", headers=h2).status_code == 403
     assert client.get(f"/api/v1/lists/{lid}", headers=h2).status_code == 403
-    assert client.get(f"/api/v1/households/{hid}/categories", headers=h2).status_code == 403
+    assert client.get("/api/v1/categories", headers=h2).status_code == 200
+    assert client.post("/api/v1/categories", json={"name": "x"}, headers=h2).status_code == 403
     assert (
         client.patch(
-            f"/api/v1/categories/{category['id']}", json={"name": "x"}, headers=h2
+            f"/api/v1/categories/{category['id']}",
+            json={"name": "x", "color": None, "sort_order": 0},
+            headers=h2,
         ).status_code
         == 403
     )
+    assert client.delete(f"/api/v1/categories/{category['id']}", headers=h2).status_code == 403
 
 
 def test_passkey_register_and_login_flow(client, monkeypatch) -> None:
@@ -232,6 +245,7 @@ def test_passkey_register_and_login_flow(client, monkeypatch) -> None:
     )
     assert register_verify.status_code == 200
     assert register_verify.json()["email"] == email
+    assert register_verify.json()["is_admin"] is False
 
     client.post("/api/v1/auth/logout")
 
@@ -245,6 +259,44 @@ def test_passkey_register_and_login_flow(client, monkeypatch) -> None:
     )
     assert login_verify.status_code == 200
     assert "access_token" in login_verify.json()
+
+
+def test_bootstrap_admin_email_promotes_matching_user(client, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.api.v1.routes.auth.verify_registration_response",
+        lambda **_: _mock_verified_registration(),
+    )
+    monkeypatch.setattr(
+        "app.api.v1.routes.auth.settings.bootstrap_admin_email", "admin@example.com"
+    )
+
+    email = "admin@example.com"
+    client.post("/api/v1/auth/register/options", json={"email": email, "display_name": "User"})
+    verify = client.post(
+        "/api/v1/auth/register/verify",
+        json={"credential": {"id": "credential-id", "type": "public-key", "response": {}}},
+    )
+    assert verify.status_code == 200
+    assert verify.json()["is_admin"] is True
+
+
+def test_bootstrap_admin_email_does_not_promote_other_users(client, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.api.v1.routes.auth.verify_registration_response",
+        lambda **_: _mock_verified_registration(),
+    )
+    monkeypatch.setattr(
+        "app.api.v1.routes.auth.settings.bootstrap_admin_email", "admin@example.com"
+    )
+
+    email = f"{uuid4()}@example.com"
+    client.post("/api/v1/auth/register/options", json={"email": email, "display_name": "User"})
+    verify = client.post(
+        "/api/v1/auth/register/verify",
+        json={"credential": {"id": "credential-id", "type": "public-key", "response": {}}},
+    )
+    assert verify.status_code == 200
+    assert verify.json()["is_admin"] is False
 
 
 def test_passkey_auth_error_paths(client, monkeypatch) -> None:
@@ -398,6 +450,7 @@ def test_web_pages_render_for_logged_in_user(client, monkeypatch) -> None:
     dashboard = client.get("/")
     assert dashboard.status_code == 200
     assert 'action="/logout"' in dashboard.text
+    assert 'href="/admin"' not in dashboard.text
     assert ">Logout<" in dashboard.text
 
     list_detail = client.get("/lists/abc")
@@ -406,6 +459,40 @@ def test_web_pages_render_for_logged_in_user(client, monkeypatch) -> None:
     assert "data-item-form-toggle" in list_detail.text
     assert "data-item-suggestions" in list_detail.text
     assert "data-list-sync-status" in list_detail.text
+
+    admin_page = client.get("/admin", follow_redirects=False)
+    assert admin_page.status_code in {302, 303, 307}
+
+
+def test_web_pages_show_admin_link_for_admin_user(client, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.api.v1.routes.auth.verify_registration_response",
+        lambda **_: _mock_verified_registration(),
+    )
+    monkeypatch.setattr(
+        "app.api.v1.routes.auth.settings.bootstrap_admin_email", "admin@example.com"
+    )
+
+    client.post(
+        "/api/v1/auth/register/options",
+        json={"email": "admin@example.com", "display_name": "Admin"},
+    )
+    verify = client.post(
+        "/api/v1/auth/register/verify",
+        json={"credential": {"id": "credential-id", "type": "public-key", "response": {}}},
+    )
+    assert verify.status_code == 200
+
+    dashboard = client.get("/")
+    assert dashboard.status_code == 200
+    assert 'href="/admin"' in dashboard.text
+
+
+def test_admin_page_redirects_for_non_admin(client) -> None:
+    _auth_headers(client, f"{uuid4()}@example.com")
+    response = client.get("/admin/", follow_redirects=False)
+    assert response.status_code in {302, 303, 307}
+    assert response.headers["location"] == "/login"
 
 
 def test_login_page_localhost_hint(client) -> None:

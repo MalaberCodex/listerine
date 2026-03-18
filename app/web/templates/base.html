@@ -8,9 +8,14 @@
     {% if is_authenticated %}
     <header class="app-header">
       <a class="app-wordmark" href="/">Listerine</a>
-      <form method="post" action="/logout">
-        <button class="logout-button" type="submit">Logout</button>
-      </form>
+      <div class="app-header-actions">
+        {% if is_admin %}
+        <a class="admin-link" href="/admin">Admin</a>
+        {% endif %}
+        <form method="post" action="/logout">
+          <button class="logout-button" type="submit">Logout</button>
+        </form>
+      </div>
     </header>
     {% endif %}
     <main>{% block content %}{% endblock %}</main>

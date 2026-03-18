@@ -16,6 +16,13 @@ router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/web/templates")
 
 
+def _template_auth_context(user: User | None) -> dict[str, bool]:
+    return {
+        "is_authenticated": user is not None,
+        "is_admin": bool(user and user.is_admin),
+    }
+
+
 def _has_session_access_token(request: Request) -> bool:
     raw_token = request.session.get("access_token")
     if not raw_token:
@@ -52,13 +59,14 @@ async def _get_session_user(request: Request, db: AsyncSession) -> User | None:
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, db: AsyncSession = Depends(get_db)) -> Response:
-    if await _get_session_user(request, db) is not None:
+    user = await _get_session_user(request, db)
+    if user is not None:
         return RedirectResponse(url="/", status_code=303)
     localhost_hint = request.url.hostname == "127.0.0.1"
     return templates.TemplateResponse(
         request,
         "login.html",
-        {"localhost_hint": localhost_hint, "is_authenticated": False},
+        {"localhost_hint": localhost_hint, **_template_auth_context(None)},
     )
 
 
@@ -73,7 +81,7 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)) -> Res
     user = await _get_session_user(request, db)
     if user is None:
         return RedirectResponse(url="/login", status_code=303)
-    return templates.TemplateResponse(request, "dashboard.html", {"is_authenticated": True})
+    return templates.TemplateResponse(request, "dashboard.html", _template_auth_context(user))
 
 
 @router.get("/lists/{list_id}", response_class=HTMLResponse, response_model=None)
@@ -88,7 +96,7 @@ async def list_detail(
         "list_detail.html",
         {
             "list_id": list_id,
-            "is_authenticated": True,
+            **_template_auth_context(user),
             "access_token": request.session.get("access_token", ""),
         },
     )
@@ -103,5 +111,5 @@ async def preview_dashboard(request: Request, db: AsyncSession = Depends(get_db)
     if context is None:
         raise HTTPException(status_code=503, detail="Preview data has not been seeded")
 
-    context["is_authenticated"] = await _get_session_user(request, db) is not None
+    context.update(_template_auth_context(await _get_session_user(request, db)))
     return templates.TemplateResponse(request, "preview.html", context)

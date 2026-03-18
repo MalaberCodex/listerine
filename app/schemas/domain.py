@@ -29,13 +29,15 @@ class GroceryListOut(ORMModel):
 class CategoryCreate(BaseModel):
     name: str
     color: str | None = None
+    sort_order: int = 0
 
 
 class CategoryOut(ORMModel):
     id: UUID
-    household_id: UUID
+    household_id: UUID | None
     name: str
     color: str | None
+    sort_order: int
 
 
 class GroceryItemCreate(BaseModel):

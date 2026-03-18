@@ -1,13 +1,13 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_list_for_user
 from app.core.database import get_db
-from app.models import GroceryItem, User
+from app.models import Category, GroceryItem, User
 from app.schemas.domain import GroceryItemCreate, GroceryItemOut, GroceryItemUpdate
 from app.services.websocket_hub import hub
 
@@ -27,6 +27,18 @@ async def _broadcast(event_type: str, user_id: UUID, item: GroceryItem) -> None:
     )
 
 
+async def _validate_category_id(db: AsyncSession, category_id: UUID | None) -> None:
+    if category_id is None:
+        return
+
+    result = await db.execute(select(Category.id).where(Category.id == category_id))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Selected category does not exist.",
+        )
+
+
 @router.post("/lists/{list_id}/items", response_model=GroceryItemOut)
 async def create_item(
     list_id: UUID,
@@ -35,6 +47,7 @@ async def create_item(
     db: AsyncSession = Depends(get_db),
 ) -> GroceryItem:
     await get_list_for_user(db, list_id, user.id)
+    await _validate_category_id(db, payload.category_id)
     item = GroceryItem(
         list_id=list_id,
         name=payload.name,
@@ -71,6 +84,9 @@ async def update_item(
     result = await db.execute(select(GroceryItem).where(GroceryItem.id == item_id))
     item = result.scalar_one()
     await get_list_for_user(db, item.list_id, user.id)
+    await _validate_category_id(
+        db, payload.category_id if "category_id" in payload.model_fields_set else None
+    )
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(item, key, value)
     item.updated_by = user.id

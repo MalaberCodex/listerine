@@ -409,12 +409,16 @@ function setItemPanelOpen(root, isOpen) {
   const panel = root.querySelector("[data-item-panel]");
   const toggle = root.querySelector("[data-item-form-toggle]");
   const nameInput = root.querySelector("[data-item-name-input]");
+  const editPanel = root.querySelector("[data-item-edit-panel]");
 
   if (!panel || !toggle) {
     return;
   }
 
   panel.hidden = !isOpen;
+  if (isOpen && editPanel instanceof HTMLElement) {
+    editPanel.hidden = true;
+  }
   toggle.setAttribute("aria-expanded", String(isOpen));
 
   if (isOpen && nameInput instanceof HTMLElement) {
@@ -424,8 +428,12 @@ function setItemPanelOpen(root, isOpen) {
   }
 }
 
-function formatSuggestionMeta(item) {
+function formatSuggestionMeta(state, item) {
   const meta = [];
+  const category = item.category_id ? state.categories.get(item.category_id)?.name || "" : "";
+  if (category) {
+    meta.push(category);
+  }
   if (item.quantity_text) {
     meta.push(item.quantity_text);
   }
@@ -434,6 +442,103 @@ function formatSuggestionMeta(item) {
   }
   meta.push(item.checked ? "checked earlier" : "already on this list");
   return meta.join(" / ");
+}
+
+function categorySortKey(state, categoryId) {
+  if (!categoryId) {
+    return { color: "", name: "Uncategorized", sortOrder: Number.MAX_SAFE_INTEGER };
+  }
+
+  const category = state.categories.get(categoryId);
+  if (!category) {
+    return { color: "", name: "Uncategorized", sortOrder: Number.MAX_SAFE_INTEGER };
+  }
+
+  return {
+    color: category.color || "",
+    name: category.name,
+    sortOrder: category.sort_order ?? Number.MAX_SAFE_INTEGER,
+  };
+}
+
+function decorateItem(state, item) {
+  const category = item.category_id ? state.categories.get(item.category_id) : null;
+  return {
+    ...item,
+    _categoryColor: category?.color || "",
+    _categoryName: category?.name || "",
+  };
+}
+
+function syncCategorySelects(root, state) {
+  root
+    .querySelectorAll("[data-item-category-select], [data-item-edit-category-select]")
+    .forEach((select) => {
+      if (!(select instanceof HTMLSelectElement)) {
+        return;
+      }
+
+      const currentValue = select.value;
+      select.innerHTML = "";
+
+      const emptyOption = document.createElement("option");
+      emptyOption.value = "";
+      emptyOption.textContent = "No category";
+      select.appendChild(emptyOption);
+
+      [...state.categories.values()]
+        .sort((left, right) => {
+          if (left.sort_order !== right.sort_order) {
+            return left.sort_order - right.sort_order;
+          }
+          return left.name.localeCompare(right.name);
+        })
+        .forEach((category) => {
+          const option = document.createElement("option");
+          option.value = category.id;
+          option.textContent = category.name;
+          select.appendChild(option);
+        });
+
+      if ([...select.options].some((option) => option.value === currentValue)) {
+        select.value = currentValue;
+      }
+    });
+}
+
+function setItemEditPanelOpen(root, state, itemId) {
+  const panel = root.querySelector("[data-item-edit-panel]");
+  const form = root.querySelector("[data-item-edit-form]");
+  const title = root.querySelector("[data-item-edit-title]");
+  if (!(panel instanceof HTMLElement) || !(form instanceof HTMLFormElement) || !title) {
+    return;
+  }
+
+  state.editingItemId = itemId;
+  if (!itemId) {
+    panel.hidden = true;
+    form.reset();
+    return;
+  }
+
+  const item = state.items.get(itemId);
+  if (!item) {
+    panel.hidden = true;
+    return;
+  }
+
+  setItemPanelOpen(root, false);
+  panel.hidden = false;
+  title.textContent = item.name;
+
+  form.elements.namedItem("name").value = item.name;
+  form.elements.namedItem("quantity_text").value = item.quantity_text || "";
+  form.elements.namedItem("note").value = item.note || "";
+
+  const categorySelect = root.querySelector("[data-item-edit-category-select]");
+  if (categorySelect instanceof HTMLSelectElement) {
+    categorySelect.value = item.category_id || "";
+  }
 }
 
 function renderItemSuggestions(root, state) {
@@ -499,7 +604,7 @@ function renderItemSuggestions(root, state) {
     copy.appendChild(title);
 
     const meta = document.createElement("span");
-    meta.textContent = formatSuggestionMeta(item);
+    meta.textContent = formatSuggestionMeta(state, item);
     copy.appendChild(meta);
 
     main.appendChild(copy);
@@ -548,7 +653,15 @@ function renderItems(root, state) {
     return;
   }
 
-  const sortedItems = [...state.items.values()].sort((left, right) => {
+  const sortedItems = [...state.items.values()].map((item) => decorateItem(state, item)).sort((left, right) => {
+    const leftCategory = categorySortKey(state, left.category_id);
+    const rightCategory = categorySortKey(state, right.category_id);
+    if (leftCategory.sortOrder !== rightCategory.sortOrder) {
+      return leftCategory.sortOrder - rightCategory.sortOrder;
+    }
+    if (leftCategory.name !== rightCategory.name) {
+      return leftCategory.name.localeCompare(rightCategory.name);
+    }
     if (left.checked !== right.checked) {
       return Number(left.checked) - Number(right.checked);
     }
@@ -561,10 +674,44 @@ function renderItems(root, state) {
   container.innerHTML = "";
   emptyState.hidden = sortedItems.length > 0;
 
+  const groupedItems = new Map();
   sortedItems.forEach((item) => {
+    const groupKey = item.category_id || "uncategorized";
+    if (!groupedItems.has(groupKey)) {
+      groupedItems.set(groupKey, []);
+    }
+    groupedItems.get(groupKey).push(item);
+  });
+
+  groupedItems.forEach((items, groupKey) => {
+    const section = document.createElement("section");
+    section.className = "item-category-group";
+
+    const category = groupKey === "uncategorized" ? null : state.categories.get(groupKey);
+    const heading = document.createElement("div");
+    heading.className = "item-category-header";
+
+    const swatch = document.createElement("span");
+    swatch.className = "item-category-swatch";
+    swatch.style.background = category?.color || "#cbd5e1";
+    heading.appendChild(swatch);
+
+    const headingCopy = document.createElement("div");
+    const headingTitle = document.createElement("h3");
+    headingTitle.textContent = category?.name || "Uncategorized";
+    headingCopy.appendChild(headingTitle);
+
+    const headingMeta = document.createElement("p");
+    headingMeta.textContent = `${items.length} ${items.length === 1 ? "item" : "items"}`;
+    headingCopy.appendChild(headingMeta);
+    heading.appendChild(headingCopy);
+    section.appendChild(heading);
+
+    items.forEach((item) => {
     const article = document.createElement("article");
     article.className = `item-card${item.checked ? " is-checked" : ""}`;
     article.dataset.itemCard = item.id;
+    article.dataset.itemEdit = item.id;
 
     const main = document.createElement("div");
     main.className = "item-main";
@@ -611,10 +758,16 @@ function renderItems(root, state) {
     actions.appendChild(deleteButton);
 
     article.appendChild(actions);
-    container.appendChild(article);
+      section.appendChild(article);
+    });
+
+    container.appendChild(section);
   });
 
   renderItemSuggestions(root, state);
+  if (state.editingItemId) {
+    setItemEditPanelOpen(root, state, state.editingItemId);
+  }
 }
 
 function replaceItems(state, items) {
@@ -631,9 +784,10 @@ function removeItem(state, itemId) {
 
 async function loadListDetail(root, state) {
   const listId = root.dataset.listId;
-  const [groceryList, items] = await Promise.all([
+  const [groceryList, items, categories] = await Promise.all([
     fetchJson(`/api/v1/lists/${listId}`),
     fetchJson(`/api/v1/lists/${listId}/items`),
+    fetchJson("/api/v1/categories"),
   ]);
 
   const title = root.querySelector("[data-list-title]");
@@ -641,7 +795,9 @@ async function loadListDetail(root, state) {
     title.textContent = groceryList.name;
   }
 
+  state.categories = new Map(categories.map((category) => [category.id, category]));
   replaceItems(state, items);
+  syncCategorySelects(root, state);
   renderItems(root, state);
 }
 
@@ -714,9 +870,12 @@ async function initListDetail() {
   }
 
   const itemForm = root.querySelector("[data-item-form]");
+  const itemEditForm = root.querySelector("[data-item-edit-form]");
   const nameInput = root.querySelector("[data-item-name-input]");
   const listId = root.dataset.listId;
   const state = {
+    categories: new Map(),
+    editingItemId: null,
     highlightTimers: new Map(),
     items: new Map(),
     socket: null,
@@ -737,6 +896,10 @@ async function initListDetail() {
 
   root.querySelector("[data-item-form-close]")?.addEventListener("click", () => {
     setItemPanelOpen(root, false);
+  });
+
+  root.querySelector("[data-item-edit-close]")?.addEventListener("click", () => {
+    setItemEditPanelOpen(root, state, null);
   });
 
   nameInput?.addEventListener("input", () => {
@@ -790,8 +953,12 @@ async function initListDetail() {
     }
 
     const payload = { name };
+    const categoryId = String(formData.get("category_id") || "").trim();
     const quantityText = String(formData.get("quantity_text") || "").trim();
     const note = String(formData.get("note") || "").trim();
+    if (categoryId) {
+      payload.category_id = categoryId;
+    }
     if (quantityText) {
       payload.quantity_text = quantityText;
     }
@@ -812,6 +979,40 @@ async function initListDetail() {
     }
   });
 
+  itemEditForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!state.editingItemId) {
+      return;
+    }
+
+    const formData = new FormData(itemEditForm);
+    const payload = {
+      name: String(formData.get("name") || "").trim(),
+      quantity_text: String(formData.get("quantity_text") || "").trim() || null,
+      note: String(formData.get("note") || "").trim() || null,
+      category_id: String(formData.get("category_id") || "").trim() || null,
+    };
+
+    if (!payload.name) {
+      setListMessage(root, "error", "Please enter an item name.");
+      return;
+    }
+
+    try {
+      const updatedItem = await fetchJson(`/api/v1/items/${state.editingItemId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      upsertItem(state, updatedItem);
+      renderItems(root, state);
+      setItemEditPanelOpen(root, state, updatedItem.id);
+      setListMessage(root, "success", "Item updated.");
+    } catch (error) {
+      setListMessage(root, "error", error instanceof Error ? error.message : "Could not save item.");
+    }
+  });
+
   root.addEventListener("click", async (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) {
@@ -821,6 +1022,12 @@ async function initListDetail() {
     const toggleId = target.dataset.itemToggle;
     const deleteId = target.dataset.itemDelete;
     const reuseItemId = target.dataset.itemReuse;
+    const editCard = target.closest("[data-item-edit]");
+
+    if (editCard && !target.closest("button")) {
+      setItemEditPanelOpen(root, state, editCard.dataset.itemEdit || null);
+      return;
+    }
 
     if (!toggleId && !deleteId && !reuseItemId) {
       return;
@@ -900,10 +1107,25 @@ async function initListDetail() {
         upsertItem(state, nextItem);
         renderItems(root, state);
       });
+      if (state.editingItemId === deleteId) {
+        setItemEditPanelOpen(root, state, null);
+      }
       setListMessage(root, "success", "Item deleted.");
     } catch (error) {
       setListMessage(root, "error", error instanceof Error ? error.message : "List action failed.");
     }
+  });
+
+  root.querySelector("[data-item-edit-delete]")?.addEventListener("click", async () => {
+    if (!state.editingItemId) {
+      return;
+    }
+
+    const deleteButton = root.querySelector(`[data-item-delete="${state.editingItemId}"]`);
+    if (!(deleteButton instanceof HTMLElement)) {
+      return;
+    }
+    deleteButton.click();
   });
 
   try {

@@ -60,7 +60,7 @@ async def ensure_preview_seed_data(db: AsyncSession) -> None:
     categories: dict[str, Category] = {}
     for index, (name, color) in enumerate(PREVIEW_CATEGORIES):
         category = Category(
-            household_id=household.id,
+            household_id=None,
             name=name,
             color=color,
             sort_order=index,
@@ -114,9 +114,7 @@ async def fetch_preview_context(db: AsyncSession) -> dict[str, object] | None:
         return None
 
     category_result = await db.execute(
-        select(Category)
-        .where(Category.household_id == household.id)
-        .order_by(Category.sort_order.asc())
+        select(Category).order_by(Category.sort_order.asc(), Category.name.asc())
     )
     categories = list(category_result.scalars().all())
 
