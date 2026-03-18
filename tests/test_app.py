@@ -195,3 +195,42 @@ def test_web_pages_render_for_logged_in_user(client) -> None:
 
     assert client.get("/").status_code == 200
     assert client.get("/lists/abc").status_code == 200
+
+
+def test_preview_page_requires_preview_mode(client) -> None:
+    assert client.get("/preview").status_code == 404
+
+
+def test_preview_page_requires_seed_data(client, monkeypatch) -> None:
+    monkeypatch.setattr("app.web.routes.settings.preview_mode", True)
+
+    response = client.get("/preview")
+
+    assert response.status_code == 503
+
+
+def test_preview_page_renders_seeded_counts(client, monkeypatch) -> None:
+    monkeypatch.setattr("app.web.routes.settings.preview_mode", True)
+
+    headers = _auth_headers(client, f"{uuid4()}@example.com")
+    household = client.post("/api/v1/households", json={"name": "Home"}, headers=headers).json()
+    grocery_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Weekly"},
+        headers=headers,
+    ).json()
+    assert (
+        client.post(
+            f"/api/v1/lists/{grocery_list['id']}/items",
+            json={"name": "Milk"},
+            headers=headers,
+        ).status_code
+        == 200
+    )
+
+    response = client.get("/preview")
+
+    assert response.status_code == 200
+    assert "Households: 1" in response.text
+    assert "Lists: 1" in response.text
+    assert "Items: 1" in response.text
