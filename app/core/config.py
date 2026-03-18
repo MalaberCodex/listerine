@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./listerine.db"
     secure_cookies: bool = False
     preview_mode: bool = False
+    preview_seed_data: bool = False
 
 
 settings = Settings()
