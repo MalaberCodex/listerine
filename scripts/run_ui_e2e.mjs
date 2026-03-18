@@ -118,17 +118,17 @@ async function main() {
     await page.keyboard.press("Enter");
     await expectVisible(page.getByRole("heading", { name: "Add an item" }), "Enter should open add modal");
     await addForm.getByLabel("Item name").fill("Spag");
-    const activeSuggestion = page.locator(".item-suggestion", { hasText: "Spaghetti" });
+    const activeSuggestion = addForm.locator(".item-suggestion", { hasText: "Spaghetti" });
     await expectVisible(activeSuggestion, "Expected duplicate suggestion for active item");
-    await activeSuggestion.getByRole("button", { name: /Jump to Spaghetti/i }).click();
+    await activeSuggestion.locator("button").click();
     await expectHidden(page.locator("[data-item-panel]"), "Suggestion reuse should close add modal");
     await page.waitForSelector('[data-item-card].is-highlighted', { timeout: 3000 });
 
     await page.getByRole("button", { name: "Add item" }).click();
     await addForm.getByLabel("Item name").fill("Brot");
-    const checkedSuggestion = page.locator(".item-suggestion", { hasText: "Brot" });
+    const checkedSuggestion = addForm.locator(".item-suggestion", { hasText: "Brot" });
     await expectVisible(checkedSuggestion, "Expected suggestion for checked duplicate item");
-    await checkedSuggestion.getByRole("button", { name: /Add Brot back to the list/i }).click();
+    await checkedSuggestion.locator("button").click();
     await expectVisible(page.locator("[data-list-toast]", { hasText: "Brot added back to the list." }), "Expected re-add toast");
     await page.locator(".item-category-header h3", { hasText: "Checked off" }).waitFor({ state: "hidden" });
     await expectVisible(page.locator(".item-card", { hasText: "Brot" }), "Brot should be active again");
@@ -158,6 +158,26 @@ async function main() {
 
     const eierCard = itemCard(page, "Eier");
     await eierCard.getByRole("button").first().click();
+    await expectVisible(
+      page.locator("[data-list-toast]", { hasText: "Eier checked." }),
+      "Expected Eier check toast",
+    );
+    await page.waitForFunction(
+      () => {
+        const groups = [...document.querySelectorAll(".item-category-group")];
+        const checkedGroup = groups.find((group) =>
+          group.querySelector(".item-category-header h3")?.textContent?.includes("Checked off")
+        );
+        if (!checkedGroup) {
+          return false;
+        }
+        const checkedNames = [...checkedGroup.querySelectorAll(".item-card .item-name")].map((node) =>
+          node.textContent?.trim()
+        );
+        return checkedNames[0] === "Eier" && checkedNames.includes("Tofu");
+      },
+      { timeout: 5000 },
+    );
     const checkedNames = await textList(page.locator(".item-category-group:last-child .item-card .item-name"));
     assert.equal(checkedNames[0], "Eier", "Most recently checked item should be first in checked section");
     assert(checkedNames.includes("Tofu"), "Expected previously checked item in checked section");
@@ -169,7 +189,10 @@ async function main() {
     await expectVisible(page.locator(".item-card", { hasText: "Hackfleisch" }), "Undo should restore deleted item");
 
     await itemCard(page, "Tomaten").click();
-    await expectVisible(page.getByRole("heading", { name: "Tomaten" }), "Clicking item should open edit modal");
+    await expectVisible(
+      page.locator("[data-item-edit-panel]").getByRole("heading", { name: "Tomaten" }),
+      "Clicking item should open edit modal",
+    );
     const editSearch = editForm.locator("[data-item-edit-category-search]");
     await editSearch.fill("brot");
     await expectVisible(
