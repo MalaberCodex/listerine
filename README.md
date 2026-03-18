@@ -25,6 +25,28 @@ uvicorn app.main:app --reload
 
 Open `http://localhost:8000/docs`.
 
+
+## Pull request preview bundle
+
+GitHub cannot host a persistent FastAPI staging environment by itself, but it can generate a repeatable seeded preview for every pull request.
+
+This repo now includes a `PR Preview` workflow that:
+
+- starts the app in `PREVIEW_MODE`
+- auto-seeds a demo account, household, categories, and grocery items
+- captures rendered HTML plus authenticated API responses
+- uploads the results as the `pr-preview-bundle` workflow artifact
+
+To enable it in GitHub, just keep Actions enabled for the repository; no external hosting service is required for the artifact-based preview flow.
+
+For local preview testing:
+
+```bash
+PREVIEW_MODE=true PREVIEW_SEED_DATA=true uvicorn app.main:app --reload
+```
+
+Then open `http://localhost:8000/preview`.
+
 ## Run tests
 
 ```bash

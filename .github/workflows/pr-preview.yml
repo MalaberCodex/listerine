@@ -1,0 +1,66 @@
+name: PR Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    env:
+      PYTHON_VERSION: '3.14'
+      DATABASE_URL: sqlite+aiosqlite:///./preview.db
+      PREVIEW_MODE: 'true'
+      PREVIEW_SEED_DATA: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: ./scripts/setup_env.sh
+      - name: Start preview app
+        run: |
+          PYTHONPATH=. uvicorn app.main:app --host 127.0.0.1 --port 8000 > preview-server.log 2>&1 &
+          echo $! > preview-server.pid
+      - name: Wait for preview app
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Preview app never became healthy" >&2
+          cat preview-server.log >&2
+          exit 1
+      - name: Generate preview bundle
+        run: PYTHONPATH=. python scripts/generate_preview_bundle.py
+      - name: Upload preview artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-preview-bundle
+          path: |
+            preview-artifacts
+            preview-server.log
+      - name: Add job summary
+        run: |
+          {
+            echo "## PR preview bundle"
+            echo
+            echo "A seeded preview artifact was generated from this pull request."
+            echo
+            echo "Download the **pr-preview-bundle** artifact from this workflow run to inspect the rendered HTML and authenticated API responses."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Stop preview app
+        if: always()
+        run: |
+          if [ -f preview-server.pid ]; then
+            kill "$(cat preview-server.pid)" || true
+          fi

@@ -176,3 +176,7 @@ def test_web_pages(client) -> None:
     assert client.get("/login").status_code == 200
     assert client.get("/").status_code == 200
     assert client.get("/lists/abc").status_code == 200
+
+
+def test_preview_page_requires_flag(client) -> None:
+    assert client.get("/preview").status_code == 404
