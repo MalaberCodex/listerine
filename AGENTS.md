@@ -43,6 +43,8 @@ Use this sequence for reliable local verification:
    - `PREVIEW_MODE=true PREVIEW_SEED_DATA=true DATABASE_URL=sqlite+aiosqlite:///./tmp-preview-check.db PYTHONPATH=. .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8010`
 6. In a separate shell, run:
    - `PREVIEW_BASE_URL=http://127.0.0.1:8010 node scripts/capture_preview_screenshots.mjs`
+   - If the script fails with `Cannot find package 'playwright'`, install it locally in the
+     workspace with `npm install --no-save playwright` and rerun the screenshot command.
 7. Stop the local preview server after the screenshots complete.
 
 This workflow is the preferred fallback whenever the default setup script or an old local preview
