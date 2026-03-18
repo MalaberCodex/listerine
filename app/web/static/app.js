@@ -595,10 +595,6 @@ function syncCategoryRadioGroup(container, groupName, currentValue, state, searc
       const hint = document.createElement("span");
       hint.textContent = category.hint;
       copy.appendChild(hint);
-    } else if (category.aliases?.length) {
-      const aliases = document.createElement("span");
-      aliases.textContent = `Also found as: ${category.aliases.join(", ")}`;
-      copy.appendChild(aliases);
     }
 
     card.appendChild(copy);
