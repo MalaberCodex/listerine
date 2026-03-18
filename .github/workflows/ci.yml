@@ -51,7 +51,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Start preview app
         run: |
-          PYTHONPATH=. .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 > ui-e2e-server.log 2>&1 &
+          PYTHONPATH=. uvicorn app.main:app --host 127.0.0.1 --port 8000 > ui-e2e-server.log 2>&1 &
           echo $! > ui-e2e-server.pid
       - name: Wait for preview app
         run: |
