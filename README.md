@@ -25,6 +25,29 @@ uvicorn app.main:app --reload
 
 Open `http://localhost:8000/docs`.
 
+
+## Pull request preview screenshots
+
+GitHub cannot host a persistent FastAPI staging environment by itself, but it can run a seeded browser e2e smoke flow for every pull request and attach screenshots to the workflow run.
+
+This repo now includes a `PR Preview Screenshots` workflow that:
+
+- starts the app in `PREVIEW_MODE`
+- auto-seeds a demo account, household, categories, and grocery items
+- opens the app in Chromium with Playwright
+- verifies key routes render and captures screenshots
+- uploads the results as the `pr-preview-screenshots` workflow artifact
+
+To enable it in GitHub, just keep Actions enabled for the repository; no external hosting service is required for this screenshot-based PR preview flow.
+
+For local preview testing:
+
+```bash
+PREVIEW_MODE=true PREVIEW_SEED_DATA=true uvicorn app.main:app --reload
+```
+
+Then open `http://localhost:8000/preview`.
+
 ## Run tests
 
 ```bash
