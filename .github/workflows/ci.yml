@@ -84,22 +84,51 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           RUN_NUMBER: ${{ github.run_number }}
         run: |
-          BASE_VERSION=$(python - <<'PY'
+          python - <<'PY'
+          import os
+          import subprocess
           import tomllib
-          with open('pyproject.toml', 'rb') as fh:
-              print(tomllib.load(fh)['project']['version'])
+          from pathlib import Path
+
+          def tag_exists(tag: str) -> bool:
+              return subprocess.run(
+                  ["git", "rev-parse", "--verify", "--quiet", tag],
+                  check=False,
+                  stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL,
+              ).returncode == 0
+
+          def next_stable_version(version: str) -> str:
+              major, minor, patch = map(int, version.split('.'))
+              candidate = f"{major}.{minor}.{patch}"
+              while tag_exists(f"v{candidate}"):
+                  patch += 1
+                  candidate = f"{major}.{minor}.{patch}"
+              return candidate
+
+          def next_rc_version(version: str, run_number: int) -> str:
+              rc_number = run_number
+              candidate = f"{version}-rc.{rc_number}"
+              while tag_exists(f"v{candidate}"):
+                  rc_number += 1
+                  candidate = f"{version}-rc.{rc_number}"
+              return candidate
+
+          base_version = tomllib.loads(Path('pyproject.toml').read_text())['project']['version']
+          ref_name = os.environ['REF_NAME']
+          run_number = int(os.environ['RUN_NUMBER'])
+
+          if ref_name == 'main':
+              release_version = next_stable_version(base_version)
+          else:
+              release_version = next_rc_version(base_version, run_number)
+
+          github_output = Path(os.environ['GITHUB_OUTPUT'])
+          with github_output.open('a', encoding='utf-8') as fh:
+              fh.write(f"base_version={base_version}\n")
+              fh.write(f"release_version={release_version}\n")
+              fh.write(f"git_tag=v{release_version}\n")
           PY
-          )
-
-          if [ "$REF_NAME" = "main" ]; then
-            RELEASE_VERSION="$BASE_VERSION"
-          else
-            RELEASE_VERSION="$BASE_VERSION-rc.$RUN_NUMBER"
-          fi
-
-          echo "base_version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
-          echo "release_version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
-          echo "git_tag=v$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
       - name: Create or update git tag
         env:
           GIT_TAG: ${{ steps.version.outputs.git_tag }}
