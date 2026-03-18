@@ -58,12 +58,11 @@ async def ensure_preview_seed_data(db: AsyncSession) -> None:
     await db.flush()
 
     categories: dict[str, Category] = {}
-    for index, (name, color) in enumerate(PREVIEW_CATEGORIES):
+    for name, color in PREVIEW_CATEGORIES:
         category = Category(
-            household_id=household.id,
+            household_id=None,
             name=name,
             color=color,
-            sort_order=index,
         )
         db.add(category)
         await db.flush()
@@ -113,11 +112,7 @@ async def fetch_preview_context(db: AsyncSession) -> dict[str, object] | None:
     if grocery_list is None:
         return None
 
-    category_result = await db.execute(
-        select(Category)
-        .where(Category.household_id == household.id)
-        .order_by(Category.sort_order.asc())
-    )
+    category_result = await db.execute(select(Category).order_by(Category.name.asc()))
     categories = list(category_result.scalars().all())
 
     item_result = await db.execute(

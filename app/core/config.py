@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import EmailStr
 
 
 class Settings(BaseSettings):
@@ -12,6 +13,7 @@ class Settings(BaseSettings):
     secure_cookies: bool = False
     preview_mode: bool = False
     preview_seed_data: bool = False
+    bootstrap_admin_email: EmailStr | None = None
 
 
 settings = Settings()

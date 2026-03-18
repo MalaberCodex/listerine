@@ -34,6 +34,11 @@ async def get_current_user(
     return user
 
 
+def ensure_admin_user(user: User) -> None:
+    if not user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+
+
 async def ensure_household_member(db: AsyncSession, household_id: UUID, user_id: UUID) -> None:
     result = await db.execute(
         select(HouseholdMember).where(
