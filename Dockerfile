@@ -4,16 +4,21 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
+ARG LISTERINE_VERSION=development
+
 WORKDIR /app
 
 RUN addgroup --system app && adduser --system --ingroup app app
 RUN mkdir /data && chown app:app /data
 
-COPY pyproject.toml VERSION README.md alembic.ini ./
+COPY pyproject.toml README.md alembic.ini ./
 COPY app ./app
 COPY alembic ./alembic
 
-RUN pip install --upgrade pip && pip install . && chown -R app:app /app
+RUN pip install --upgrade pip \
+    && SETUPTOOLS_SCM_PRETEND_VERSION=${LISTERINE_VERSION} pip install . \
+    && printf '%s\n' "${LISTERINE_VERSION}" > VERSION \
+    && chown -R app:app /app
 
 USER app
 
