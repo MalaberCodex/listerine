@@ -9,6 +9,12 @@ Then run:
 - `black --check .`
 - `flake8 .`
 
+
+## Testing expectations
+
+- Test coverage must remain at 100%.
+- Any new Python code must include automated tests that exercise the new behavior and keep coverage at 100%.
+
 ## Failure handling
 
 - If dependency installation fails, try a reasonable fallback (for example: retry once, try alternate Python path, or run checks that do not require missing deps).

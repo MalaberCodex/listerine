@@ -4,7 +4,7 @@ import { chromium } from "playwright";
 
 const baseUrl = process.env.PREVIEW_BASE_URL ?? "http://127.0.0.1:8000";
 const artifactDir = process.env.PREVIEW_ARTIFACT_DIR ?? "e2e-artifacts";
-const previewEmail = "preview@listerine.local";
+const previewEmail = "preview@example.com";
 const previewPassword = "preview-secret";
 
 async function fetchJson(url, init = {}) {

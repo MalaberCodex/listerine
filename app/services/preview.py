@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import hash_password
 from app.models import Category, GroceryItem, GroceryList, Household, HouseholdMember, User
 
-PREVIEW_EMAIL = "preview@listerine.local"
+PREVIEW_EMAIL = "preview@example.com"
 PREVIEW_PASSWORD = "preview-secret"
 PREVIEW_USER_NAME = "Preview User"
 PREVIEW_HOUSEHOLD_NAME = "Preview Household"

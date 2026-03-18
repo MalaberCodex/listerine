@@ -4,20 +4,40 @@ from fastapi.testclient import TestClient
 
 from app.core.database import Base, AsyncSessionLocal, engine
 from app.main import app
-from app.services.preview import ensure_preview_seed_data
+from app.models import Household, User
+from app.services.preview import PREVIEW_EMAIL, ensure_preview_seed_data, fetch_preview_context
 
 
-async def _reset_and_seed() -> None:
+async def _reset_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
+
+
+async def _seed_preview() -> None:
     async with AsyncSessionLocal() as session:
         await ensure_preview_seed_data(session)
 
 
+async def _insert_user_only() -> None:
+    async with AsyncSessionLocal() as session:
+        session.add(User(email=PREVIEW_EMAIL, password_hash="hash", display_name="Preview"))
+        await session.commit()
+
+
+async def _insert_user_and_household() -> None:
+    async with AsyncSessionLocal() as session:
+        user = User(email=PREVIEW_EMAIL, password_hash="hash", display_name="Preview")
+        session.add(user)
+        await session.flush()
+        session.add(Household(name="Preview Household", owner_user_id=user.id))
+        await session.commit()
+
+
 def test_preview_page_renders_seeded_data(monkeypatch) -> None:
     monkeypatch.setattr("app.web.routes.settings.preview_mode", True)
-    asyncio.run(_reset_and_seed())
+    asyncio.run(_reset_db())
+    asyncio.run(_seed_preview())
 
     with TestClient(app) as client:
         response = client.get("/preview")
@@ -26,3 +46,67 @@ def test_preview_page_renders_seeded_data(monkeypatch) -> None:
     assert "Preview Household" in response.text
     assert "Weekend Shop" in response.text
     assert "Bananas" in response.text
+
+    asyncio.run(engine.dispose())
+
+
+def test_preview_page_returns_503_without_seed_data(monkeypatch) -> None:
+    monkeypatch.setattr("app.web.routes.settings.preview_mode", True)
+    asyncio.run(_reset_db())
+
+    with TestClient(app) as client:
+        response = client.get("/preview")
+
+    assert response.status_code == 503
+
+    asyncio.run(engine.dispose())
+
+
+def test_fetch_preview_context_handles_missing_states() -> None:
+    asyncio.run(_reset_db())
+
+    async def _check_none() -> None:
+        async with AsyncSessionLocal() as session:
+            assert await fetch_preview_context(session) is None
+
+    asyncio.run(_check_none())
+    asyncio.run(_insert_user_only())
+    asyncio.run(_check_none())
+
+    asyncio.run(_reset_db())
+    asyncio.run(_insert_user_and_household())
+    asyncio.run(_check_none())
+
+    asyncio.run(engine.dispose())
+
+
+def test_preview_seed_is_idempotent() -> None:
+    asyncio.run(_reset_db())
+    asyncio.run(_seed_preview())
+    asyncio.run(_seed_preview())
+
+    async def _assert_context() -> None:
+        async with AsyncSessionLocal() as session:
+            context = await fetch_preview_context(session)
+            assert context is not None
+            assert context["user"].email == PREVIEW_EMAIL
+            assert len(context["items"]) == 3
+
+    asyncio.run(_assert_context())
+    asyncio.run(engine.dispose())
+
+
+def test_lifespan_seeds_preview_data(monkeypatch) -> None:
+    monkeypatch.setattr("app.main.settings.preview_seed_data", True)
+    monkeypatch.setattr("app.web.routes.settings.preview_mode", True)
+    asyncio.run(_reset_db())
+
+    try:
+        with TestClient(app) as client:
+            response = client.get("/preview")
+        assert response.status_code == 200
+        assert "preview@example.com" in response.text
+    finally:
+        monkeypatch.setattr("app.main.settings.preview_seed_data", False)
+        monkeypatch.setattr("app.web.routes.settings.preview_mode", False)
+        asyncio.run(engine.dispose())

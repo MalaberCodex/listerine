@@ -18,3 +18,4 @@ def client() -> TestClient:
     asyncio.run(_reset_db())
     with TestClient(app) as test_client:
         yield test_client
+    asyncio.run(engine.dispose())
