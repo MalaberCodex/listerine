@@ -22,28 +22,37 @@ if [[ -z "$binary" ]]; then
 fi
 
 coverage_json=$(mktemp)
+coverage_script=$(mktemp)
 llvm-cov export "$binary" -instr-profile "$profdata" > "$coverage_json"
 
-python - <<'PY' "$coverage_json"
-import json
-import pathlib
-import sys
+cat > "$coverage_script" <<'SWIFT'
+import Foundation
 
-coverage_path = pathlib.Path(sys.argv[1])
-report = json.loads(coverage_path.read_text())
-source_marker = "/Sources/ListerineCore/"
-covered = 0
-count = 0
-for entry in report["data"][0]["files"]:
-    if source_marker in entry["filename"]:
-        lines = entry["summary"]["lines"]
-        covered += lines["covered"]
-        count += lines["count"]
-coverage = 100.0 if count == 0 else covered * 100.0 / count
-print(f"Swift ListerineCore coverage: {coverage:.2f}% ({covered}/{count} lines)")
-threshold = 99.0
-if coverage + 1e-9 < threshold:
-    raise SystemExit(f"Coverage {coverage:.2f}% is below required threshold {threshold:.2f}%")
-PY
+let coveragePath = URL(fileURLWithPath: CommandLine.arguments[1])
+let data = try Data(contentsOf: coveragePath)
+let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+let report = (json["data"] as! [[String: Any]])[0]
+let files = report["files"] as! [[String: Any]]
+let sourceMarker = "/Sources/ListerineCore/"
 
-rm -f "$coverage_json"
+var covered = 0
+var count = 0
+for entry in files where (entry["filename"] as? String)?.contains(sourceMarker) == true {
+    let summary = entry["summary"] as! [String: Any]
+    let lines = summary["lines"] as! [String: Any]
+    covered += lines["covered"] as! Int
+    count += lines["count"] as! Int
+}
+
+let coverage = count == 0 ? 100.0 : (Double(covered) * 100.0 / Double(count))
+print(String(format: "Swift ListerineCore coverage: %.2f%% (%d/%d lines)", coverage, covered, count))
+let threshold = 99.0
+if coverage + 1e-9 < threshold {
+    fputs(String(format: "Coverage %.2f%% is below required threshold %.2f%%\n", coverage, threshold), stderr)
+    exit(1)
+}
+SWIFT
+
+swift "$coverage_script" "$coverage_json"
+
+rm -f "$coverage_json" "$coverage_script"

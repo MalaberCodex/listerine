@@ -91,3 +91,4 @@ It includes:
 - `AuthenticationServices`-based placeholder request creation while backend passkey endpoints are still in progress
 - a Swift package test suite with a coverage gate for the iOS client core logic
 - App Store release notes in `ios/ListerineIOS/README.md`
+- GitHub-hosted macOS build/TestFlight workflow scaffolding for the iOS app

@@ -55,3 +55,33 @@ When those routes exist, update `ApplePasskeyClient.swift` to submit server-prov
 6. Archive the app in Xcode, validate it, and upload it through Organizer.
 7. In App Store Connect, create the app record, complete screenshots, pricing, age rating, and submission notes.
 8. Submit for App Review and be ready to provide a demo account or backend test environment if Apple asks for one.
+
+
+## GitHub Actions automation
+
+Two workflows now automate most of the iOS delivery path:
+
+- `.github/workflows/ci.yml` runs the Linux Swift package tests in parallel with the Python checks.
+- `.github/workflows/ios-build-and-testflight.yml` can generate the Xcode project on GitHub-hosted macOS runners, build the app for the iOS simulator, and optionally archive/export/upload a signed build to TestFlight.
+
+### Secrets needed for TestFlight uploads
+
+Set these GitHub Actions secrets before dispatching the TestFlight upload workflow:
+
+- `APPLE_TEAM_ID`
+- `IOS_BUNDLE_IDENTIFIER`
+- `KEYCHAIN_PASSWORD`
+- `BUILD_CERTIFICATE_BASE64`
+- `P12_PASSWORD`
+- `BUILD_PROVISION_PROFILE_BASE64`
+- `BUILD_PROVISION_PROFILE_NAME`
+- `APP_STORE_CONNECT_KEY_ID`
+- `APP_STORE_CONNECT_ISSUER_ID`
+- `APP_STORE_CONNECT_PRIVATE_KEY`
+
+### How to use the workflow
+
+1. Push the branch to GitHub so the `iOS Build and TestFlight` workflow appears.
+2. Run the workflow once with `upload_to_testflight = false` to verify project generation and simulator builds.
+3. Add the required signing and App Store Connect secrets.
+4. Re-run it with `upload_to_testflight = true` to archive, export, and upload the IPA to TestFlight.
