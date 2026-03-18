@@ -39,4 +39,4 @@ async def ws_list(websocket: WebSocket, list_id: UUID) -> None:
     except WebSocketDisconnect:
         hub.disconnect(list_id, websocket)
     finally:
-        await db.close()
+        await db_gen.aclose()

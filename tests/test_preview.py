@@ -1,6 +1,7 @@
 import asyncio
 
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import close_all_sessions
 
 from app.core.database import Base, AsyncSessionLocal, engine
 from app.main import app
@@ -12,6 +13,11 @@ async def _reset_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
+
+
+async def _dispose_db() -> None:
+    await close_all_sessions()
+    await engine.dispose()
 
 
 async def _seed_preview() -> None:
@@ -47,7 +53,7 @@ def test_preview_page_renders_seeded_data(monkeypatch) -> None:
     assert "Weekend Shop" in response.text
     assert "Bananas" in response.text
 
-    asyncio.run(engine.dispose())
+    asyncio.run(_dispose_db())
 
 
 def test_preview_page_returns_503_without_seed_data(monkeypatch) -> None:
@@ -62,7 +68,7 @@ def test_preview_page_returns_503_without_seed_data(monkeypatch) -> None:
     assert response.status_code == 503
     assert login_response.status_code == 503
 
-    asyncio.run(engine.dispose())
+    asyncio.run(_dispose_db())
 
 
 def test_fetch_preview_context_handles_missing_states() -> None:
@@ -80,7 +86,7 @@ def test_fetch_preview_context_handles_missing_states() -> None:
     asyncio.run(_insert_user_and_household())
     asyncio.run(_check_none())
 
-    asyncio.run(engine.dispose())
+    asyncio.run(_dispose_db())
 
 
 def test_preview_seed_is_idempotent() -> None:
@@ -96,7 +102,7 @@ def test_preview_seed_is_idempotent() -> None:
             assert len(context["items"]) == 3
 
     asyncio.run(_assert_context())
-    asyncio.run(engine.dispose())
+    asyncio.run(_dispose_db())
 
 
 def test_lifespan_seeds_preview_data(monkeypatch) -> None:
@@ -117,7 +123,7 @@ def test_lifespan_seeds_preview_data(monkeypatch) -> None:
         monkeypatch.setattr("app.main.settings.preview_seed_data", False)
         monkeypatch.setattr("app.web.routes.settings.preview_mode", False)
         monkeypatch.setattr("app.api.v1.routes.auth.settings.preview_mode", False)
-        asyncio.run(engine.dispose())
+        asyncio.run(_dispose_db())
 
 
 def test_preview_login_requires_flag() -> None:
@@ -128,4 +134,4 @@ def test_preview_login_requires_flag() -> None:
             response = client.post("/api/v1/auth/preview/login")
         assert response.status_code == 404
     finally:
-        asyncio.run(engine.dispose())
+        asyncio.run(_dispose_db())
