@@ -1,0 +1,43 @@
+# Listerine iPhone app
+
+This folder contains a starter SwiftUI iPhone client for Listerine.
+
+## Included app flow
+
+- first-launch backend URL entry and local persistence
+- passkey sign-up button
+- passkey login button
+- placeholder passkey request generation using `AuthenticationServices`
+- integration notes for connecting to the future backend passkey endpoints
+
+## Project setup in Xcode
+
+1. Open Xcode 16 or newer on macOS.
+2. Create a new **App** project named `Listerine` using **SwiftUI** and **Swift**.
+3. Replace the generated Swift files with the source files from this folder.
+4. Add the `AuthenticationServices` framework if Xcode does not link it automatically.
+5. Set the deployment target to **iOS 16.0** or newer.
+6. Run the app on an iPhone simulator or device.
+
+## Backend work needed to finish passkey auth
+
+The app is intentionally ready only up to local passkey request creation. To complete the feature, the backend will need endpoints that:
+
+1. return a WebAuthn registration challenge for sign-up
+2. verify the registration response and create the account
+3. return a WebAuthn assertion challenge for login
+4. verify the assertion response and establish an authenticated session or token
+5. expose the relying party ID and any environment-specific passkey metadata the app should trust
+
+When those routes exist, update `PasskeyAuthService.swift` to fetch the challenge from the configured backend URL and POST the completed registration/assertion payload back to the API.
+
+## Shipping to the App Store
+
+1. Join the Apple Developer Program and create an App ID for the iOS app.
+2. In Xcode, configure the bundle identifier, signing team, app icon, launch assets, and display metadata.
+3. Add privacy disclosures in App Store Connect, including whether account identifiers or diagnostics are collected.
+4. If passkeys are used in production, verify the associated domains and WebAuthn relying party configuration you will use for the final backend.
+5. Test on physical devices, especially sign-in flows, keyboard behavior, and network error handling.
+6. Archive the app in Xcode, validate it, and upload it through Organizer.
+7. In App Store Connect, create the app record, complete screenshots, pricing, age rating, and submission notes.
+8. Submit for App Review and be ready to provide a demo account or backend test environment if Apple asks for one.

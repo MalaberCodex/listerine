@@ -79,3 +79,14 @@ The `alembic/` folder contains database migration tooling and revision files.
 ## Python version
 
 This project is configured for Python 3.14 in Docker and CI.
+
+
+## iPhone SwiftUI starter app
+
+A starter iPhone client now lives in `ios/ListerineIOS/`.
+
+It includes:
+- backend URL entry and persistence on first launch
+- passkey sign-up and log-in buttons
+- `AuthenticationServices`-based placeholder request creation while backend passkey endpoints are still in progress
+- App Store release notes in `ios/ListerineIOS/README.md`
