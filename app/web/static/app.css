@@ -557,6 +557,10 @@ main {
   overflow: hidden;
 }
 
+.list-toast[hidden] {
+  display: none;
+}
+
 .list-toast p {
   margin: 0;
   line-height: 1.4;

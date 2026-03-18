@@ -743,6 +743,28 @@ async function initListDetail() {
     renderItemSuggestions(root, state);
   });
 
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.defaultPrevented) {
+      return;
+    }
+
+    const activeElement = document.activeElement;
+    const panel = root.querySelector("[data-item-panel]");
+    const isTypingContext =
+      activeElement instanceof HTMLInputElement ||
+      activeElement instanceof HTMLTextAreaElement ||
+      activeElement instanceof HTMLSelectElement ||
+      activeElement?.isContentEditable;
+
+    if (isTypingContext || !panel?.hidden) {
+      return;
+    }
+
+    event.preventDefault();
+    setItemPanelOpen(root, true);
+    renderItemSuggestions(root, state);
+  });
+
   root.querySelector("[data-list-toast-undo]")?.addEventListener("click", async () => {
     if (!state.undoAction) {
       return;
