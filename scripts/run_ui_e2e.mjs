@@ -196,9 +196,17 @@ async function runInviteFlow(ownerPage, browser, scenario) {
       invitePage.locator(".household-card", { hasText: previewHouseholdName }).first(),
       "Invitee should see the household after accepting the invite",
     );
+    const acceptedHouseholdCard = invitePage
+      .locator(".household-card", { hasText: previewHouseholdName })
+      .filter({ hasText: fixtureListName })
+      .first();
     await expectVisible(
-      invitePage.getByRole("link", { name: "Open list" }),
-      "Invitee should be able to reach household lists after accepting",
+      acceptedHouseholdCard,
+      "Invitee should see the seeded UI e2e list after accepting the invite",
+    );
+    await expectVisible(
+      acceptedHouseholdCard.getByRole("link", { name: "Open list" }).first(),
+      "Invitee should be able to reach the seeded UI e2e list after accepting the invite",
     );
     await screenshot(invitePage, "invite-accepted");
   } finally {
