@@ -48,9 +48,16 @@ class CategoryAdmin(ModelView, model=Category):
     name = "Category"
     name_plural = "Categories"
     icon = "fa-solid fa-tag"
-    column_list = [Category.name, Category.color]
-    form_columns = [Category.name, Category.color]
-    form_widget_args = {"color": {"type": "color"}}
+    column_list = [Category.name, Category.color, Category.aliases_text]
+    form_columns = [Category.name, Category.color, Category.aliases_text]
+    column_labels = {Category.aliases_text: "Aliases"}
+    form_widget_args = {
+        "color": {"type": "color"},
+        "aliases_text": {
+            "placeholder": "One alias per line, for example:\nBrot\nBroetchen",
+            "rows": 4,
+        },
+    }
     column_formatters = {
         Category.color: lambda model, attr: (
             Markup(
@@ -60,7 +67,8 @@ class CategoryAdmin(ModelView, model=Category):
             )
             if model.color
             else ""
-        )
+        ),
+        Category.aliases_text: lambda model, attr: ", ".join(model.aliases),
     }
 
 

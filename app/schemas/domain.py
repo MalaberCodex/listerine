@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.common import ORMModel
 
@@ -29,6 +29,7 @@ class GroceryListOut(ORMModel):
 class CategoryCreate(BaseModel):
     name: str
     color: str | None = None
+    aliases: list[str] = Field(default_factory=list)
 
 
 class CategoryOut(ORMModel):
@@ -36,6 +37,7 @@ class CategoryOut(ORMModel):
     household_id: UUID | None
     name: str
     color: str | None
+    aliases: list[str]
 
 
 class ListCategoryOrderUpdate(BaseModel):

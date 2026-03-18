@@ -81,18 +81,20 @@ def test_full_flow(client) -> None:
 
     category = client.post(
         "/api/v1/categories",
-        json={"name": "Produce", "color": "green"},
+        json={"name": "Produce", "color": "green", "aliases": ["Veg", "Fruit & veg"]},
         headers=headers,
     ).json()
+    assert category["aliases"] == ["Veg", "Fruit & veg"]
 
     assert client.get("/api/v1/categories", headers=headers).status_code == 200
 
     updated_category = client.patch(
         f"/api/v1/categories/{category['id']}",
-        json={"name": "Dairy", "color": "blue"},
+        json={"name": "Dairy", "color": "blue", "aliases": ["Milk", "Cheese"]},
         headers=headers,
     ).json()
     assert updated_category["name"] == "Dairy"
+    assert updated_category["aliases"] == ["Milk", "Cheese"]
 
     bakery_category = client.post(
         "/api/v1/categories",

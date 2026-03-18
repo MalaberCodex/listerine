@@ -75,12 +75,17 @@
         <div class="item-suggestion-slot" data-item-suggestions-slot>
           <div class="item-suggestion-list" data-item-suggestions></div>
         </div>
-        <label class="dashboard-field">
-          <span>Category</span>
-          <select name="category_id" data-item-category-select>
-            <option value="">No category</option>
-          </select>
-        </label>
+        <fieldset class="dashboard-field category-radio-group">
+          <legend>Category</legend>
+          <input
+            class="category-search-input"
+            type="search"
+            placeholder="Search categories or aliases"
+            autocomplete="off"
+            data-item-category-search
+          />
+          <div class="category-radio-list" data-item-category-radios></div>
+        </fieldset>
         <label class="dashboard-field">
           <span>Quantity</span>
           <input type="text" name="quantity_text" placeholder="2 bottles" maxlength="120" />
@@ -141,12 +146,17 @@
           <span>Item name</span>
           <input type="text" name="name" maxlength="255" required />
         </label>
-        <label class="dashboard-field">
-          <span>Category</span>
-          <select name="category_id" data-item-edit-category-select>
-            <option value="">No category</option>
-          </select>
-        </label>
+        <fieldset class="dashboard-field category-radio-group">
+          <legend>Category</legend>
+          <input
+            class="category-search-input"
+            type="search"
+            placeholder="Search categories or aliases"
+            autocomplete="off"
+            data-item-edit-category-search
+          />
+          <div class="category-radio-list" data-item-edit-category-radios></div>
+        </fieldset>
         <label class="dashboard-field">
           <span>Quantity</span>
           <input type="text" name="quantity_text" maxlength="120" />

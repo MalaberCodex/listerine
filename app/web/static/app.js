@@ -405,6 +405,15 @@ function normalizeItemName(value) {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+function normalizeSearchText(value) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
 function syncModalState(root) {
   const addOverlay = root.querySelector("[data-item-panel-overlay]");
   const editOverlay = root.querySelector("[data-item-edit-overlay]");
@@ -423,6 +432,7 @@ function setItemPanelOpen(root, isOpen) {
   const overlay = root.querySelector("[data-item-panel-overlay]");
   const toggle = root.querySelector("[data-item-form-toggle]");
   const nameInput = root.querySelector("[data-item-name-input]");
+  const categorySearch = root.querySelector("[data-item-category-search]");
   const editPanel = root.querySelector("[data-item-edit-panel]");
   const editOverlay = root.querySelector("[data-item-edit-overlay]");
   const settingsPanel = root.querySelector("[data-list-settings-panel]");
@@ -441,6 +451,9 @@ function setItemPanelOpen(root, isOpen) {
   if (isOpen && settingsPanel instanceof HTMLElement && settingsOverlay instanceof HTMLElement) {
     settingsPanel.hidden = true;
     settingsOverlay.hidden = true;
+  }
+  if (isOpen && categorySearch instanceof HTMLInputElement) {
+    categorySearch.value = "";
   }
   toggle.setAttribute("aria-expanded", String(isOpen));
   syncModalState(root);
@@ -505,37 +518,125 @@ function decorateItem(state, item) {
   };
 }
 
-function syncCategorySelects(root, state) {
-  root
-    .querySelectorAll("[data-item-category-select], [data-item-edit-category-select]")
-    .forEach((select) => {
-      if (!(select instanceof HTMLSelectElement)) {
-        return;
-      }
+function setCategoryRadioValue(root, selector, categoryId) {
+  root.querySelectorAll(selector).forEach((radio) => {
+    if (!(radio instanceof HTMLInputElement)) {
+      return;
+    }
 
-      const currentValue = select.value;
-      select.innerHTML = "";
+    radio.checked = radio.value === (categoryId || "");
+  });
+}
 
-      const emptyOption = document.createElement("option");
-      emptyOption.value = "";
-      emptyOption.textContent = "No category";
-      select.appendChild(emptyOption);
+function categoryMatchesQuery(category, query) {
+  if (!query) {
+    return true;
+  }
 
-      [...state.categories.values()]
-        .sort((left, right) => {
-          return left.name.localeCompare(right.name);
-        })
-        .forEach((category) => {
-          const option = document.createElement("option");
-          option.value = category.id;
-          option.textContent = category.name;
-          select.appendChild(option);
-        });
+  const haystacks = [category.name, ...(category.aliases || [])].map((value) => normalizeSearchText(value));
+  return haystacks.some((value) => value.includes(query));
+}
 
-      if ([...select.options].some((option) => option.value === currentValue)) {
-        select.value = currentValue;
-      }
-    });
+function syncCategoryRadioGroup(container, groupName, currentValue, state, searchQuery) {
+  if (!(container instanceof HTMLElement)) {
+    return;
+  }
+
+  container.innerHTML = "";
+  const categories = [...state.categories.values()].sort((left, right) => left.name.localeCompare(right.name));
+  const options = [
+    {
+      color: "",
+      id: "",
+      name: "No category",
+      hint: "Keep this item above the category sections.",
+    },
+    ...categories,
+  ].filter(
+    (category, index) =>
+      index === 0 || category.id === (currentValue || "") || categoryMatchesQuery(category, searchQuery)
+  );
+
+  if (options.length === 0) {
+    const emptyState = document.createElement("p");
+    emptyState.className = "category-radio-empty";
+    emptyState.textContent = "No category matches that search yet.";
+    container.appendChild(emptyState);
+    return;
+  }
+
+  options.forEach((category, index) => {
+    const option = document.createElement("label");
+    option.className = "category-radio-option";
+
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = groupName;
+    input.value = category.id;
+    input.checked = (currentValue || "") === category.id;
+    option.appendChild(input);
+
+    const card = document.createElement("span");
+    card.className = "category-radio-card";
+
+    const swatch = document.createElement("span");
+    swatch.className = "category-radio-swatch";
+    swatch.style.background = category.color || "#cbd5e1";
+    card.appendChild(swatch);
+
+    const copy = document.createElement("span");
+    copy.className = "category-radio-copy";
+
+    const title = document.createElement("strong");
+    title.textContent = category.name;
+    copy.appendChild(title);
+
+    if (index === 0) {
+      const hint = document.createElement("span");
+      hint.textContent = category.hint;
+      copy.appendChild(hint);
+    } else if (category.aliases?.length) {
+      const aliases = document.createElement("span");
+      aliases.textContent = `Also found as: ${category.aliases.join(", ")}`;
+      copy.appendChild(aliases);
+    }
+
+    card.appendChild(copy);
+    option.appendChild(card);
+    container.appendChild(option);
+  });
+}
+
+function syncCategoryRadioGroups(root, state) {
+  const addContainer = root.querySelector("[data-item-category-radios]");
+  const editContainer = root.querySelector("[data-item-edit-category-radios]");
+  const addSearchInput = root.querySelector("[data-item-category-search]");
+  const editSearchInput = root.querySelector("[data-item-edit-category-search]");
+  const addSearch = addSearchInput instanceof HTMLInputElement ? addSearchInput.value : "";
+  const editSearch = editSearchInput instanceof HTMLInputElement ? editSearchInput.value : "";
+  const addCurrentValue =
+    root.querySelector('input[name="category_id"]:checked') instanceof HTMLInputElement
+      ? root.querySelector('input[name="category_id"]:checked').value
+      : "";
+  const editCurrentValue =
+    root.querySelector('input[name="edit_category_id"]:checked') instanceof HTMLInputElement
+      ? root.querySelector('input[name="edit_category_id"]:checked').value
+      : "";
+
+  syncCategoryRadioGroup(
+    addContainer,
+    "category_id",
+    addCurrentValue,
+    state,
+    normalizeSearchText(addSearch)
+  );
+  syncCategoryRadioGroup(
+    editContainer,
+    "edit_category_id",
+    editCurrentValue,
+    state,
+    normalizeSearchText(editSearch)
+  );
 }
 
 function getManualCategoryIds(state) {
@@ -622,6 +723,10 @@ function setItemEditPanelOpen(root, state, itemId) {
     overlay.hidden = true;
     panel.hidden = true;
     form.reset();
+    const editSearch = root.querySelector("[data-item-edit-category-search]");
+    if (editSearch instanceof HTMLInputElement) {
+      editSearch.value = "";
+    }
     syncModalState(root);
     return;
   }
@@ -643,11 +748,13 @@ function setItemEditPanelOpen(root, state, itemId) {
   form.elements.namedItem("name").value = item.name;
   form.elements.namedItem("quantity_text").value = item.quantity_text || "";
   form.elements.namedItem("note").value = item.note || "";
-
-  const categorySelect = root.querySelector("[data-item-edit-category-select]");
-  if (categorySelect instanceof HTMLSelectElement) {
-    categorySelect.value = item.category_id || "";
+  const editSearch = root.querySelector("[data-item-edit-category-search]");
+  if (editSearch instanceof HTMLInputElement) {
+    editSearch.value = "";
   }
+
+  setCategoryRadioValue(root, 'input[name="edit_category_id"]', item.category_id || "");
+  syncCategoryRadioGroups(root, state);
 }
 
 function renderCategoryOrderSettings(root, state) {
@@ -1129,7 +1236,7 @@ async function loadListDetail(root, state) {
     categoryOrder.map((entry) => [entry.category_id, entry.sort_order])
   );
   replaceItems(state, items);
-  syncCategorySelects(root, state);
+  syncCategoryRadioGroups(root, state);
   renderItems(root, state);
 }
 
@@ -1265,6 +1372,14 @@ async function initListDetail() {
     renderItemSuggestions(root, state);
   });
 
+  root.querySelector("[data-item-category-search]")?.addEventListener("input", () => {
+    syncCategoryRadioGroups(root, state);
+  });
+
+  root.querySelector("[data-item-edit-category-search]")?.addEventListener("input", () => {
+    syncCategoryRadioGroups(root, state);
+  });
+
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") {
       return;
@@ -1356,6 +1471,12 @@ async function initListDetail() {
       const createdItem = await postJson(`/api/v1/lists/${listId}/items`, payload);
       upsertItem(state, createdItem);
       itemForm.reset();
+      const addSearch = root.querySelector("[data-item-category-search]");
+      if (addSearch instanceof HTMLInputElement) {
+        addSearch.value = "";
+      }
+      setCategoryRadioValue(root, 'input[name="category_id"]', "");
+      syncCategoryRadioGroups(root, state);
       renderItems(root, state);
       setItemPanelOpen(root, false);
       hideUndoToast(root, state);
@@ -1376,7 +1497,7 @@ async function initListDetail() {
       name: String(formData.get("name") || "").trim(),
       quantity_text: String(formData.get("quantity_text") || "").trim() || null,
       note: String(formData.get("note") || "").trim() || null,
-      category_id: String(formData.get("category_id") || "").trim() || null,
+      category_id: String(formData.get("edit_category_id") || "").trim() || null,
     };
 
     if (!payload.name) {
