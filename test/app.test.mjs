@@ -1,12 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { pathToFileURL } from "node:url";
-
 import { JSDOM } from "jsdom";
 
-const appModuleUrl = pathToFileURL(
-  "/Users/daniel/.codex/worktrees/d87f/listerine/app/web/static/app.js",
-).href;
+const appModuleUrl = new URL("../app/web/static/app.js", import.meta.url).href;
 let appPromise;
 
 async function loadApp() {
