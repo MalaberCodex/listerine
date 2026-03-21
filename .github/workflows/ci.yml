@@ -2,6 +2,11 @@ name: CI
 
 on:
   push:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
   workflow_dispatch:
 
 permissions:
@@ -46,9 +51,8 @@ jobs:
       PYTHON_VERSION: '3.14'
       NODE_VERSION: '24'
       DATABASE_URL: sqlite+aiosqlite:///./tmp-ci-ui-e2e.db
-      PREVIEW_MODE: 'true'
-      PREVIEW_SEED_DATA: 'true'
-      PREVIEW_UI_E2E_SEED_DATA: 'true'
+      SEED_DATA_PATH: app/fixtures/review_seed.json
+      WEBAUTHN_RP_ID: localhost
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -60,11 +64,11 @@ jobs:
       - run: ./scripts/setup_env.sh
       - run: npm install --no-save playwright
       - run: npx playwright install --with-deps chromium
-      - name: Start preview app
+      - name: Start review app
         run: |
           PYTHONPATH=. uvicorn app.main:app --host 127.0.0.1 --port 8000 > ui-e2e-server.log 2>&1 &
           echo $! > ui-e2e-server.pid
-      - name: Wait for preview app
+      - name: Wait for review app
         run: |
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8000/health > /dev/null; then
@@ -72,11 +76,11 @@ jobs:
             fi
             sleep 1
           done
-          echo "Preview app never became healthy" >&2
+          echo "Review app never became healthy" >&2
           cat ui-e2e-server.log >&2
           exit 1
       - name: Run browser ui e2e
-        run: PREVIEW_BASE_URL=http://127.0.0.1:8000 node scripts/run_ui_e2e.mjs
+        run: PREVIEW_BASE_URL=http://localhost:8000 node scripts/run_ui_e2e.mjs
       - name: Upload browser artifacts
         if: always()
         uses: actions/upload-artifact@v6
@@ -92,7 +96,7 @@ jobs:
           if [ -f e2e-artifacts/ui-e2e/summary.md ]; then
             cat e2e-artifacts/ui-e2e/summary.md >> "$GITHUB_STEP_SUMMARY"
           fi
-      - name: Stop preview app
+      - name: Stop review app
         if: always()
         run: |
           if [ -f ui-e2e-server.pid ]; then
@@ -192,6 +196,7 @@ jobs:
 
   docker_build:
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     needs:
       - python_test
       - javascript_test
@@ -201,13 +206,46 @@ jobs:
     outputs:
       image: ${{ steps.image.outputs.image }}
       digest: ${{ steps.build.outputs.digest }}
+      primary_tag: ${{ steps.tags.outputs.primary_tag }}
     steps:
       - uses: actions/checkout@v6
+      - name: Checkout PR head commit for preview images
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags origin "${{ github.event.pull_request.head.sha }}"
+          git checkout --detach "${{ github.event.pull_request.head.sha }}"
       - name: Compute image name
         id: image
         env:
           REPOSITORY: ${{ github.repository }}
         run: echo "image=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - name: Compute image tags
+        id: tags
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_SHA: ${{ github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            PRIMARY_TAG="sha-$PR_HEAD_SHA"
+            {
+              echo "primary_tag=$PRIMARY_TAG"
+              echo "tags<<EOF"
+              echo "$IMAGE:$PRIMARY_TAG"
+              echo "$IMAGE:pr-$PR_NUMBER-${PR_HEAD_SHA:0:7}"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            PRIMARY_TAG="sha-$PUSH_SHA"
+            {
+              echo "primary_tag=$PRIMARY_TAG"
+              echo "tags<<EOF"
+              echo "$IMAGE:$PRIMARY_TAG"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -224,13 +262,13 @@ jobs:
           build-args: |
             LISTERINE_VERSION=${{ needs.version.outputs.release_version }}
           push: true
-          tags: ${{ steps.image.outputs.image }}:sha-${{ github.sha }}
+          tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Add docker build summary
         env:
           IMAGE: ${{ steps.image.outputs.image }}
-          IMAGE_TAG: sha-${{ github.sha }}
+          IMAGE_TAG: ${{ steps.tags.outputs.primary_tag }}
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           docker buildx imagetools inspect "$IMAGE:$IMAGE_TAG" > docker-image-inspect.txt
@@ -248,9 +286,117 @@ jobs:
             cat docker-image-inspect.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Wake webhooker review deployment
+        if: github.event_name == 'pull_request'
+        env:
+          WAKE_URL: ${{ vars.WEBHOOKER_REVIEW_WAKE_URL }}
+          WAKE_SECRET: ${{ secrets.WEBHOOKER_WEBHOOK_SECRET }}
+          EVENT_ACTION: ${{ github.event.action }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPOSITORY: ${{ github.repository }}
+          DELIVERY_ID: ci-review-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          python - <<'PY'
+          import hashlib
+          import hmac
+          import json
+          import os
+          import urllib.request
+
+          if not os.environ["WAKE_URL"] or not os.environ["WAKE_SECRET"]:
+              print("Skipping review wake: WEBHOOKER_REVIEW_WAKE_URL or WEBHOOKER_WEBHOOK_SECRET is not configured.")
+              raise SystemExit(0)
+
+          owner, repo = os.environ["REPOSITORY"].split("/", 1)
+          payload = {
+              "action": os.environ["EVENT_ACTION"],
+              "number": int(os.environ["PR_NUMBER"]),
+              "pull_request": {
+                  "number": int(os.environ["PR_NUMBER"]),
+                  "head": {"sha": os.environ["PR_HEAD_SHA"]},
+              },
+              "repository": {
+                  "name": repo,
+                  "full_name": os.environ["REPOSITORY"],
+                  "owner": {"login": owner},
+              },
+          }
+          body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+          signature = "sha256=" + hmac.new(
+              os.environ["WAKE_SECRET"].encode("utf-8"),
+              body,
+              hashlib.sha256,
+          ).hexdigest()
+          request = urllib.request.Request(
+              os.environ["WAKE_URL"],
+              data=body,
+              method="POST",
+              headers={
+                  "Content-Type": "application/json",
+                  "X-GitHub-Event": "pull_request",
+                  "X-GitHub-Delivery": os.environ["DELIVERY_ID"],
+                  "X-Hub-Signature-256": signature,
+              },
+          )
+          with urllib.request.urlopen(request) as response:
+              print(f"review wake status={response.status}")
+          PY
+      - name: Wake webhooker production deployment
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          WAKE_URL: ${{ vars.WEBHOOKER_PRODUCTION_WAKE_URL }}
+          WAKE_SECRET: ${{ secrets.WEBHOOKER_WEBHOOK_SECRET }}
+          PUSH_SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+          DELIVERY_ID: ci-production-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          python - <<'PY'
+          import hashlib
+          import hmac
+          import json
+          import os
+          import urllib.request
+
+          if not os.environ["WAKE_URL"] or not os.environ["WAKE_SECRET"]:
+              print("Skipping production wake: WEBHOOKER_PRODUCTION_WAKE_URL or WEBHOOKER_WEBHOOK_SECRET is not configured.")
+              raise SystemExit(0)
+
+          owner, repo = os.environ["REPOSITORY"].split("/", 1)
+          payload = {
+              "ref": f"refs/heads/{os.environ['REF_NAME']}",
+              "after": os.environ["PUSH_SHA"],
+              "repository": {
+                  "name": repo,
+                  "full_name": os.environ["REPOSITORY"],
+                  "owner": {"login": owner},
+              },
+          }
+          body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+          signature = "sha256=" + hmac.new(
+              os.environ["WAKE_SECRET"].encode("utf-8"),
+              body,
+              hashlib.sha256,
+          ).hexdigest()
+          request = urllib.request.Request(
+              os.environ["WAKE_URL"],
+              data=body,
+              method="POST",
+              headers={
+                  "Content-Type": "application/json",
+                  "X-GitHub-Event": "push",
+                  "X-GitHub-Delivery": os.environ["DELIVERY_ID"],
+                  "X-Hub-Signature-256": signature,
+              },
+          )
+          with urllib.request.urlopen(request) as response:
+              print(f"production wake status={response.status}")
+          PY
 
   release:
     runs-on: ubuntu-latest
+    if: github.event_name == 'push'
     needs:
       - python_test
       - javascript_test

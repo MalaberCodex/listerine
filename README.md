@@ -32,27 +32,27 @@ The repo includes a seeded Playwright browser e2e flow in CI.
 
 That flow:
 
-- starts the app in `PREVIEW_MODE`
-- auto-seeds a demo household, a second invitee user, categories, and grocery items
+- starts the app with `SEED_DATA_PATH=app/fixtures/review_seed.json`
+- seeds multiple households, lists, categories, checked items, and passkey-backed users
 - opens the app in Chromium with Playwright
-- verifies login gating, list interactions, websocket sync, and invite acceptance
+- verifies real passkey login, list interactions, websocket sync, and invite acceptance
 - records browser video and screenshots into the `browser-ui-e2e` artifact
 
 No separate screenshot-only workflow is needed.
 
-For local preview testing:
+For local review-style seeded testing:
 
 ```bash
-PREVIEW_MODE=true PREVIEW_SEED_DATA=true uvicorn app.main:app --reload
+SEED_DATA_PATH=app/fixtures/review_seed.json WEBAUTHN_RP_ID=localhost uvicorn app.main:app --reload
 ```
 
-Then open `http://localhost:8000/preview`.
+Then open `http://localhost:8000/login`.
 
 For local browser UI e2e coverage:
 
 ```bash
-PREVIEW_MODE=true PREVIEW_SEED_DATA=true PREVIEW_UI_E2E_SEED_DATA=true DATABASE_URL=sqlite+aiosqlite:///./tmp-ui-e2e.db PYTHONPATH=. .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
-PREVIEW_BASE_URL=http://127.0.0.1:8000 node scripts/run_ui_e2e.mjs
+SEED_DATA_PATH=app/fixtures/review_seed.json WEBAUTHN_RP_ID=localhost DATABASE_URL=sqlite+aiosqlite:///./tmp-ui-e2e.db PYTHONPATH=. .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+PREVIEW_BASE_URL=http://localhost:8000 WEBAUTHN_RP_ID=localhost node scripts/run_ui_e2e.mjs
 ```
 
 ## Run tests
@@ -164,6 +164,36 @@ Notes for production:
 - If you intentionally want to trust any proxy source, `UVICORN_FORWARDED_ALLOW_IPS=*` is supported, but that is less strict.
 - Keep the `./data` directory on persistent storage so `./data/listerine.db` survives container replacement.
 - To upgrade, change `LISTERINE_IMAGE` to a newer tag such as `ghcr.io/malaber/listerine:0.1.3`, then run `docker compose pull && docker compose up -d`.
+
+## Webhooker deployment bundle
+
+This repo includes a standalone `webhooker` deployment bundle under `deploy/webhooker/` for both long-lived production and per-PR preview environments.
+
+The bundle includes:
+
+- `compose.production.yml` for the production deployment managed by `webhooker`
+- `compose.review.yml` for per-PR preview deployments managed by `webhooker`
+- `env/production.common.env` and `env/review.common.env` for non-secret runtime defaults
+- `config/listerine-production.yaml` and `config/listerine-review.yaml` as ready-to-edit `webhooker` project definitions
+- `README.md` with the recommended host layout and the worker mounts required for Listerine secrets
+
+The current CI now publishes webhooker-friendly OCI tags automatically:
+
+- pushes publish `ghcr.io/<owner>/<repo>:sha-<full git sha>`
+- pull requests publish `ghcr.io/<owner>/<repo>:sha-<pr head sha>` and `ghcr.io/<owner>/<repo>:pr-<number>-<sha7>`
+
+The same CI workflow also sends signed wake requests to `webhooker` after the image push:
+
+- pull requests wake the review deployment endpoint
+- pushes to `main` wake the production deployment endpoint
+
+To enable those wake calls, configure these GitHub Actions settings:
+
+- repository variable `WEBHOOKER_REVIEW_WAKE_URL`
+- repository variable `WEBHOOKER_PRODUCTION_WAKE_URL`
+- repository secret `WEBHOOKER_WEBHOOK_SECRET`
+
+If you deploy a fork, update the image repository path in the `deploy/webhooker/config/*.yaml` files accordingly.
 
 ## SwiftUI client roadmap
 

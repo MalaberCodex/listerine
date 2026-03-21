@@ -29,11 +29,9 @@ from app.schemas.auth import (
     PasskeyLoginStartRequest,
     PasskeyRegisterStartRequest,
     PasswordAuthRequest,
-    PreviewLoginRequest,
     TokenOut,
     UserOut,
 )
-from app.services.preview import PREVIEW_EMAIL, PREVIEW_INVITEE_EMAIL
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -42,6 +40,8 @@ _LOGIN_SESSION_KEY = "passkey_login"
 
 
 def _rp_id_for_request(request: Request) -> str:
+    if settings.webauthn_rp_id:
+        return settings.webauthn_rp_id
     host = request.url.hostname
     if host is None:
         raise HTTPException(
@@ -224,29 +224,6 @@ async def register_password_disabled(_: PasswordAuthRequest) -> None:
 @router.post("/login", response_model=None)
 async def login_password_disabled(_: PasswordAuthRequest) -> None:
     raise _password_auth_disabled()
-
-
-@router.post("/preview/login", response_model=TokenOut)
-async def preview_login(
-    request: Request,
-    payload: PreviewLoginRequest | None = None,
-    db: AsyncSession = Depends(get_db),
-) -> TokenOut:
-    if not settings.preview_mode:
-        raise HTTPException(status_code=404)
-
-    target_email = payload.email if payload and payload.email else PREVIEW_EMAIL
-    if target_email not in {PREVIEW_EMAIL, PREVIEW_INVITEE_EMAIL}:
-        raise HTTPException(status_code=404)
-
-    result = await db.execute(select(User).where(User.email == target_email))
-    user = result.scalar_one_or_none()
-    if user is None:
-        raise HTTPException(status_code=503, detail="Preview data has not been seeded")
-
-    token = create_access_token(user.id)
-    request.session["access_token"] = token
-    return TokenOut(access_token=token)
 
 
 @router.post("/logout")
