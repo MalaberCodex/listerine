@@ -177,7 +177,23 @@ The bundle includes:
 - `config/listerine-production.yaml` and `config/listerine-review.yaml` as ready-to-edit `webhooker` project definitions
 - `README.md` with the recommended host layout and the worker mounts required for Listerine secrets
 
-The current CI publishes OCI images to `ghcr.io/<owner>/<repo>:sha-<full git sha>`. The provided `webhooker` configs are written against that tag pattern. If you deploy a fork, update the image repository path accordingly.
+The current CI now publishes webhooker-friendly OCI tags automatically:
+
+- pushes publish `ghcr.io/<owner>/<repo>:sha-<full git sha>`
+- pull requests publish `ghcr.io/<owner>/<repo>:sha-<pr head sha>` and `ghcr.io/<owner>/<repo>:pr-<number>-<sha7>`
+
+The same CI workflow also sends signed wake requests to `webhooker` after the image push:
+
+- pull requests wake the review deployment endpoint
+- pushes to `main` wake the production deployment endpoint
+
+To enable those wake calls, configure these GitHub Actions settings:
+
+- repository variable `WEBHOOKER_REVIEW_WAKE_URL`
+- repository variable `WEBHOOKER_PRODUCTION_WAKE_URL`
+- repository secret `WEBHOOKER_WEBHOOK_SECRET`
+
+If you deploy a fork, update the image repository path in the `deploy/webhooker/config/*.yaml` files accordingly.
 
 ## SwiftUI client roadmap
 

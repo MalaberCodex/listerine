@@ -1,7 +1,7 @@
 project_id: listerine-review
 
 github:
-  owner: Malaber
+  owner: MalaberCodex
   repo: listerine
   token_env_var: GITHUB_TOKEN
   webhook_secret_env_var: GITHUB_WEBHOOK_SECRET
@@ -18,7 +18,7 @@ deployment:
 
 image:
   registry: ghcr.io
-  repository: malaber/listerine
+  repository: malabercodex/listerine
   tag_template: sha-{pr_head_sha}
 
 preview:

@@ -72,7 +72,21 @@ Keep the existing mount for the Listerine deployment bundle as well:
 - Production deployments keep preview mode disabled.
 - Both modes use SQLite on the host via `DATABASE_URL=sqlite+aiosqlite:///${APP_SQLITE_PATH}`.
 - Both modes join the external Traefik network `system_traefik_external`.
-- The app image tag format matches this repo's current CI output: `sha-<full git sha>`.
+- CI publishes `sha-<full git sha>` tags for normal pushes.
+- CI publishes `sha-<pr head sha>` and `pr-<number>-<sha7>` tags for pull requests.
+- CI sends signed wake requests to `webhooker` after publishing images.
+
+## GitHub Actions settings
+
+Set these in the app repository so CI can wake `webhooker` after image publish:
+
+- repository variable `WEBHOOKER_REVIEW_WAKE_URL`
+- repository variable `WEBHOOKER_PRODUCTION_WAKE_URL`
+- repository secret `WEBHOOKER_WEBHOOK_SECRET`
+
+The secret value must match the webhook secret environment variable used by your `webhooker-api` and `webhooker-worker` services.
+
+Preview deployments from forked pull requests are not published automatically, because GitHub does not expose package-write credentials and deployment secrets to untrusted fork workflows.
 
 ## Secrets files
 
