@@ -225,3 +225,18 @@ def test_passkey_request_helpers() -> None:
         assert getattr(exc, "status_code", None) == 400
     else:  # pragma: no cover
         raise AssertionError("Expected hostless passkey request to fail")
+
+
+def test_passkey_request_helper_prefers_configured_rp_id(monkeypatch) -> None:
+    request = Request(
+        {
+            "type": "http",
+            "scheme": "https",
+            "path": "/login",
+            "server": ("pr-42.review.example.com", 443),
+            "headers": [(b"host", b"pr-42.review.example.com")],
+        }
+    )
+
+    monkeypatch.setattr("app.api.v1.routes.auth.settings.webauthn_rp_id", "review.example.com")
+    assert _rp_id_for_request(request) == "review.example.com"

@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
     database_url: str = "sqlite+aiosqlite:///./listerine.db"
     secure_cookies: bool = False
+    webauthn_rp_id: str | None = None
     preview_mode: bool = False
     preview_seed_data: bool = False
     preview_ui_e2e_seed_data: bool = False
