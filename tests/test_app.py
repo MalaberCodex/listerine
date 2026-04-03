@@ -611,6 +611,35 @@ def test_passkey_register_and_login_flow(client, monkeypatch) -> None:
     assert "access_token" in login_verify.json()
 
 
+def test_passkey_settings_replace_flow(client, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.api.v1.routes.auth.verify_registration_response",
+        lambda **_: _mock_verified_registration(),
+    )
+
+    email = f"{uuid4()}@example.com"
+    client.post(
+        "/api/v1/auth/register/options",
+        json={"email": email, "display_name": "User"},
+    )
+    register_verify = client.post(
+        "/api/v1/auth/register/verify",
+        json={"credential": {"id": "credential-id", "type": "public-key", "response": {}}},
+    )
+    assert register_verify.status_code == 200
+
+    options = client.post("/api/v1/auth/settings/passkey/options", json={})
+    assert options.status_code == 200
+    assert "challenge" in options.json()
+
+    verify = client.post(
+        "/api/v1/auth/settings/passkey/verify",
+        json={"credential": {"id": "credential-id", "type": "public-key", "response": {}}},
+    )
+    assert verify.status_code == 200
+    assert verify.json()["email"] == email
+
+
 def test_bootstrap_admin_email_promotes_matching_user(client, monkeypatch) -> None:
     monkeypatch.setattr(
         "app.api.v1.routes.auth.verify_registration_response",
@@ -753,10 +782,11 @@ def test_web_pages_require_login(client) -> None:
     response = client.get("/login")
     assert response.status_code == 200
     assert "Sign in with passkey" in response.text
-    assert "Create passkey" in response.text
+    assert "Create passkey" not in response.text
     assert "Password signup and password login are disabled." in response.text
     assert "Logout" not in response.text
     assert client.get("/", follow_redirects=False).status_code == 303
+    assert client.get("/settings", follow_redirects=False).status_code == 303
     assert client.get("/lists/abc", follow_redirects=False).status_code == 303
 
     script = client.get("/static/app.js")
@@ -801,8 +831,14 @@ def test_web_pages_render_for_logged_in_user(client, monkeypatch) -> None:
     dashboard = client.get("/")
     assert dashboard.status_code == 200
     assert 'action="/logout"' in dashboard.text
+    assert 'href="/settings"' in dashboard.text
     assert 'href="/admin"' not in dashboard.text
     assert ">Logout<" in dashboard.text
+
+    settings = client.get("/settings")
+    assert settings.status_code == 200
+    assert "Account and passkey" in settings.text
+    assert "Replace passkey" in settings.text
 
     list_detail = client.get("/lists/abc")
     assert list_detail.status_code == 200

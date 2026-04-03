@@ -39,6 +39,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 _REGISTER_SESSION_KEY = "passkey_register"
 _LOGIN_SESSION_KEY = "passkey_login"
+_SETTINGS_SESSION_KEY = "passkey_settings"
 
 
 def _rp_id_for_request(request: Request) -> str:
@@ -224,6 +225,68 @@ async def register_password_disabled(_: PasswordAuthRequest) -> None:
 @router.post("/login", response_model=None)
 async def login_password_disabled(_: PasswordAuthRequest) -> None:
     raise _password_auth_disabled()
+
+
+@router.post("/settings/passkey/options")
+async def begin_passkey_replace(
+    request: Request,
+    user: User = Depends(get_current_user),
+) -> dict:
+    options = generate_registration_options(
+        rp_id=_rp_id_for_request(request),
+        rp_name=settings.app_name,
+        user_name=user.email,
+        user_id=user.id.bytes,
+        user_display_name=user.display_name,
+        authenticator_selection=AuthenticatorSelectionCriteria(
+            resident_key=ResidentKeyRequirement.REQUIRED,
+            user_verification=UserVerificationRequirement.REQUIRED,
+        ),
+    )
+    request.session[_SETTINGS_SESSION_KEY] = {
+        "challenge": bytes_to_base64url(options.challenge),
+        "origin": _origin_for_request(request),
+        "rp_id": _rp_id_for_request(request),
+        "user_id": str(user.id),
+    }
+    return json.loads(options_to_json(options))
+
+
+@router.post("/settings/passkey/verify", response_model=UserOut)
+async def finish_passkey_replace(
+    payload: PasskeyFinishRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> User:
+    pending = request.session.get(_SETTINGS_SESSION_KEY)
+    if pending is None:
+        raise HTTPException(status_code=400, detail="Passkey settings session expired")
+
+    result = await db.execute(select(User).where(User.id == UUID(pending["user_id"])))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    try:
+        verified = verify_registration_response(
+            credential=payload.credential,
+            expected_challenge=base64url_to_bytes(pending["challenge"]),
+            expected_rp_id=pending["rp_id"],
+            expected_origin=pending["origin"],
+            require_user_verification=True,
+        )
+    except Exception as exc:  # pragma: no cover - exercised via API tests with monkeypatch
+        raise HTTPException(status_code=400, detail="Passkey update failed") from exc
+
+    user.passkey_credential_id = bytes_to_base64url(verified.credential_id)
+    user.passkey_public_key = verified.credential_public_key
+    user.passkey_sign_count = verified.sign_count
+    await db.commit()
+    await db.refresh(user)
+
+    request.session.pop(_SETTINGS_SESSION_KEY, None)
+    return user
 
 
 @router.post("/preview/login", response_model=TokenOut)
