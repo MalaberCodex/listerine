@@ -63,6 +63,15 @@ When `PREVIEW_SEED_DATA=true` is enabled, the app ensures these users exist:
 - `listerine_admin@schaedler.rocks` (admin): instance admin only, intentionally not in seeded households
 - `preview@example.com` and `preview-invitee@example.com` remain for backward-compatible preview/e2e flows
 
+### API role boundaries
+
+The API is split by router-level role guards (applied automatically to all endpoints in each area):
+
+- Non-admin users: household/list/item/websocket application APIs
+- Admin users: category/admin-management APIs
+
+This keeps separation of concerns without duplicating endpoint logic, and new endpoints inherit the same role policy by being added to the corresponding router.
+
 ### Export passkeys from a running PR instance for seed updates
 
 If you register passkeys in a running PR instance and want to copy the credential data into seed fixtures, use:

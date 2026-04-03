@@ -84,10 +84,10 @@ def test_full_flow(client) -> None:
     assert client.get("/health").status_code == 200
     assert client.get("/api").status_code == 200
 
-    headers = _auth_headers(client, f"{uuid4()}@example.com", is_admin=True)
+    headers = _auth_headers(client, f"{uuid4()}@example.com")
     me = client.get("/api/v1/auth/me", headers=headers)
     assert me.status_code == 200
-    assert me.json()["is_admin"] is True
+    assert me.json()["is_admin"] is False
 
     household = client.post("/api/v1/households", json={"name": "Home"}, headers=headers).json()
     household_id = household["id"]
@@ -105,19 +105,21 @@ def test_full_flow(client) -> None:
     )
     assert client.get(f"/api/v1/lists/{list_id}", headers=headers).status_code == 200
 
+    admin_headers = _auth_headers(client, f"{uuid4()}@example.com", is_admin=True)
+
     category = client.post(
         "/api/v1/categories",
         json={"name": "Produce", "color": "green", "aliases": ["Veg", "Fruit & veg"]},
-        headers=headers,
+        headers=admin_headers,
     ).json()
     assert category["aliases"] == ["Veg", "Fruit & veg"]
 
-    assert client.get("/api/v1/categories", headers=headers).status_code == 200
+    assert client.get("/api/v1/categories", headers=admin_headers).status_code == 200
 
     updated_category = client.patch(
         f"/api/v1/categories/{category['id']}",
         json={"name": "Dairy", "color": "blue", "aliases": ["Milk", "Cheese"]},
-        headers=headers,
+        headers=admin_headers,
     ).json()
     assert updated_category["name"] == "Dairy"
     assert updated_category["aliases"] == ["Milk", "Cheese"]
@@ -125,7 +127,7 @@ def test_full_flow(client) -> None:
     bakery_category = client.post(
         "/api/v1/categories",
         json={"name": "Bakery", "color": "orange"},
-        headers=headers,
+        headers=admin_headers,
     ).json()
 
     category_order = client.put(
@@ -199,10 +201,15 @@ def test_full_flow(client) -> None:
     assert patched_list["name"] == "Weekly 2"
 
     assert (
-        client.delete(f"/api/v1/categories/{bakery_category['id']}", headers=headers).status_code
+        client.delete(
+            f"/api/v1/categories/{bakery_category['id']}", headers=admin_headers
+        ).status_code
         == 200
     )
-    assert client.delete(f"/api/v1/categories/{category['id']}", headers=headers).status_code == 200
+    assert (
+        client.delete(f"/api/v1/categories/{category['id']}", headers=admin_headers).status_code
+        == 200
+    )
     assert client.delete(f"/api/v1/lists/{list_id}", headers=headers).status_code == 200
     assert client.post("/api/v1/auth/logout", headers=headers).status_code == 200
 
@@ -266,7 +273,8 @@ def test_auth_and_access_error_paths(client) -> None:
 
 
 def test_list_category_order_rejects_duplicates_and_list_delete_cleans_up_orders(client) -> None:
-    headers = _auth_headers(client, f"{uuid4()}@example.com", is_admin=True)
+    headers = _auth_headers(client, f"{uuid4()}@example.com")
+    admin_headers = _auth_headers(client, f"{uuid4()}@example.com", is_admin=True)
     household = client.post("/api/v1/households", json={"name": "Home"}, headers=headers).json()
     grocery_list = client.post(
         f"/api/v1/households/{household['id']}/lists",
@@ -276,7 +284,7 @@ def test_list_category_order_rejects_duplicates_and_list_delete_cleans_up_orders
     category = client.post(
         "/api/v1/categories",
         json={"name": "Produce", "color": "#22c55e"},
-        headers=headers,
+        headers=admin_headers,
     ).json()
 
     duplicate_order = client.put(
@@ -313,7 +321,8 @@ def test_list_category_order_rejects_duplicates_and_list_delete_cleans_up_orders
 
 
 def test_delete_category_clears_item_category_and_order(client) -> None:
-    headers = _auth_headers(client, f"{uuid4()}@example.com", is_admin=True)
+    headers = _auth_headers(client, f"{uuid4()}@example.com")
+    admin_headers = _auth_headers(client, f"{uuid4()}@example.com", is_admin=True)
     household = client.post("/api/v1/households", json={"name": "Home"}, headers=headers).json()
     grocery_list = client.post(
         f"/api/v1/households/{household['id']}/lists",
@@ -323,7 +332,7 @@ def test_delete_category_clears_item_category_and_order(client) -> None:
     category = client.post(
         "/api/v1/categories",
         json={"name": "Produce", "color": "#22c55e"},
-        headers=headers,
+        headers=admin_headers,
     ).json()
 
     item = client.post(
@@ -338,7 +347,7 @@ def test_delete_category_clears_item_category_and_order(client) -> None:
     )
     assert order.status_code == 200
 
-    deleted_category = client.delete(f"/api/v1/categories/{category['id']}", headers=headers)
+    deleted_category = client.delete(f"/api/v1/categories/{category['id']}", headers=admin_headers)
     assert deleted_category.status_code == 200
 
     items = client.get(f"/api/v1/lists/{grocery_list['id']}/items", headers=headers).json()
@@ -353,8 +362,9 @@ def test_delete_category_clears_item_category_and_order(client) -> None:
 
 
 def test_cross_household_forbidden(client) -> None:
-    h1 = _auth_headers(client, f"{uuid4()}@example.com", is_admin=True)
+    h1 = _auth_headers(client, f"{uuid4()}@example.com")
     h2 = _auth_headers(client, f"{uuid4()}@example.com")
+    admin_headers = _auth_headers(client, f"{uuid4()}@example.com", is_admin=True)
 
     household = client.post("/api/v1/households", json={"name": "Home"}, headers=h1).json()
     hid = household["id"]
@@ -365,13 +375,13 @@ def test_cross_household_forbidden(client) -> None:
     category = client.post(
         "/api/v1/categories",
         json={"name": "Secret", "color": "red"},
-        headers=h1,
+        headers=admin_headers,
     ).json()
 
     assert client.get(f"/api/v1/households/{hid}", headers=h2).status_code == 403
     assert client.get(f"/api/v1/households/{hid}/lists", headers=h2).status_code == 403
     assert client.get(f"/api/v1/lists/{lid}", headers=h2).status_code == 403
-    assert client.get("/api/v1/categories", headers=h2).status_code == 200
+    assert client.get("/api/v1/categories", headers=h2).status_code == 403
     assert client.post("/api/v1/categories", json={"name": "x"}, headers=h2).status_code == 403
     assert (
         client.patch(
@@ -384,11 +394,32 @@ def test_cross_household_forbidden(client) -> None:
     assert client.delete(f"/api/v1/categories/{category['id']}", headers=h2).status_code == 403
 
 
+def test_api_role_boundaries_are_enforced(client) -> None:
+    user_headers = _auth_headers(client, f"{uuid4()}@example.com")
+    admin_headers = _auth_headers(client, f"{uuid4()}@example.com", is_admin=True)
+
+    assert (
+        client.post("/api/v1/households", json={"name": "Home"}, headers=admin_headers).status_code
+        == 403
+    )
+    assert client.get("/api/v1/households", headers=admin_headers).status_code == 403
+
+    assert client.get("/api/v1/categories", headers=user_headers).status_code == 403
+    assert (
+        client.post(
+            "/api/v1/categories",
+            json={"name": "Produce", "color": "#22c55e"},
+            headers=user_headers,
+        ).status_code
+        == 403
+    )
+
+
 def test_household_invite_helpers_and_owner_accept_path(client) -> None:
     aware = datetime(2026, 3, 18, 12, 0, tzinfo=UTC)
     assert _as_utc(aware) == aware
 
-    owner_headers = _auth_headers(client, f"{uuid4()}@example.com", is_admin=True)
+    owner_headers = _auth_headers(client, f"{uuid4()}@example.com")
     household = client.post(
         "/api/v1/households", json={"name": "Home"}, headers=owner_headers
     ).json()
@@ -410,7 +441,7 @@ def test_household_invite_helpers_and_owner_accept_path(client) -> None:
 
 
 def test_household_invite_flow_allows_joining_and_keeps_access_scoped(client) -> None:
-    owner_headers = _auth_headers(client, f"{uuid4()}@example.com", is_admin=True)
+    owner_headers = _auth_headers(client, f"{uuid4()}@example.com")
     recipient_headers = _auth_headers(client, f"{uuid4()}@example.com")
     outsider_headers = _auth_headers(client, f"{uuid4()}@example.com")
 
@@ -482,7 +513,7 @@ def test_household_invite_flow_allows_joining_and_keeps_access_scoped(client) ->
 
 
 def test_household_invites_require_owner_and_reject_expired_tokens(client) -> None:
-    owner_headers = _auth_headers(client, f"{uuid4()}@example.com", is_admin=True)
+    owner_headers = _auth_headers(client, f"{uuid4()}@example.com")
     member_user_id = asyncio.run(_create_user(f"{uuid4()}@example.com"))
     member_headers = {"Authorization": f"Bearer {create_access_token(member_user_id)}"}
 
@@ -539,7 +570,7 @@ def test_household_invites_require_owner_and_reject_expired_tokens(client) -> No
 
 
 def test_invite_web_flow_redirects_through_login(client, monkeypatch) -> None:
-    owner_headers = _auth_headers(client, f"{uuid4()}@example.com", is_admin=True)
+    owner_headers = _auth_headers(client, f"{uuid4()}@example.com")
     household = client.post(
         "/api/v1/households", json={"name": "Home"}, headers=owner_headers
     ).json()
@@ -837,9 +868,9 @@ def test_web_pages_show_admin_link_for_admin_user(client, monkeypatch) -> None:
     )
     assert verify.status_code == 200
 
-    dashboard = client.get("/")
-    assert dashboard.status_code == 200
-    assert 'href="/admin"' in dashboard.text
+    dashboard = client.get("/", follow_redirects=False)
+    assert dashboard.status_code == 303
+    assert dashboard.headers["location"] == "/admin"
 
 
 def test_admin_page_shows_application_link_for_admin(client, monkeypatch) -> None:
