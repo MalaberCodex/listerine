@@ -5,10 +5,12 @@ from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
 from app.main import app
-from app.models import Household, User
+from app.models import Household, HouseholdMember, User
 from app.services.preview import (
     PREVIEW_EMAIL,
+    PREVIEW_INSTANCE_ADMIN_EMAIL,
     PREVIEW_INVITEE_EMAIL,
+    PREVIEW_MEMBER_EMAIL,
     UI_E2E_LIST_NAME,
     ensure_preview_seed_data,
     ensure_ui_e2e_seed_data,
@@ -207,6 +209,49 @@ def test_ui_e2e_seed_promotes_existing_preview_user_to_admin() -> None:
     asyncio.run(dispose_db())
 
 
+def test_seeded_listerine_users_have_expected_admin_and_membership_state() -> None:
+    asyncio.run(reset_db())
+    asyncio.run(_seed_ui_e2e())
+
+    async def _assert_membership() -> None:
+        async with AsyncSessionLocal() as session:
+            admin_result = await session.execute(
+                select(User).where(User.email == PREVIEW_INSTANCE_ADMIN_EMAIL)
+            )
+            admin_user = admin_result.scalar_one_or_none()
+            assert admin_user is not None
+            assert admin_user.is_admin is True
+
+            member_result = await session.execute(
+                select(User).where(User.email == PREVIEW_MEMBER_EMAIL)
+            )
+            member_user = member_result.scalar_one_or_none()
+            assert member_user is not None
+            assert member_user.is_admin is False
+
+            households = (await session.execute(select(Household))).scalars().all()
+            assert households
+            for household in households:
+                member_link = await session.execute(
+                    select(HouseholdMember).where(
+                        HouseholdMember.household_id == household.id,
+                        HouseholdMember.user_id == member_user.id,
+                    )
+                )
+                assert member_link.scalar_one_or_none() is not None
+
+                admin_link = await session.execute(
+                    select(HouseholdMember).where(
+                        HouseholdMember.household_id == household.id,
+                        HouseholdMember.user_id == admin_user.id,
+                    )
+                )
+                assert admin_link.scalar_one_or_none() is None
+
+    asyncio.run(_assert_membership())
+    asyncio.run(dispose_db())
+
+
 def test_lifespan_seeds_preview_data(monkeypatch) -> None:
     monkeypatch.setattr("app.main.settings.preview_seed_data", True)
     monkeypatch.setattr("app.web.routes.settings.preview_mode", True)
@@ -277,12 +322,22 @@ def test_preview_login_accepts_seeded_invitee_and_rejects_unknown_email(monkeypa
                 "/api/v1/auth/preview/login",
                 json={"email": PREVIEW_INVITEE_EMAIL},
             )
+            member_response = client.post(
+                "/api/v1/auth/preview/login",
+                json={"email": PREVIEW_MEMBER_EMAIL},
+            )
+            admin_response = client.post(
+                "/api/v1/auth/preview/login",
+                json={"email": PREVIEW_INSTANCE_ADMIN_EMAIL},
+            )
             unknown_response = client.post(
                 "/api/v1/auth/preview/login",
                 json={"email": "nope@example.com"},
             )
 
         assert invitee_response.status_code == 200
+        assert member_response.status_code == 200
+        assert admin_response.status_code == 200
         assert "access_token" in invitee_response.json()
         assert unknown_response.status_code == 404
     finally:

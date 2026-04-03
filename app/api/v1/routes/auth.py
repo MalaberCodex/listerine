@@ -33,7 +33,12 @@ from app.schemas.auth import (
     TokenOut,
     UserOut,
 )
-from app.services.preview import PREVIEW_EMAIL, PREVIEW_INVITEE_EMAIL
+from app.services.preview import (
+    PREVIEW_EMAIL,
+    PREVIEW_INSTANCE_ADMIN_EMAIL,
+    PREVIEW_INVITEE_EMAIL,
+    PREVIEW_MEMBER_EMAIL,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -235,8 +240,13 @@ async def preview_login(
     if not settings.preview_mode:
         raise HTTPException(status_code=404)
 
-    target_email = payload.email if payload and payload.email else PREVIEW_EMAIL
-    if target_email not in {PREVIEW_EMAIL, PREVIEW_INVITEE_EMAIL}:
+    target_email = payload.email if payload and payload.email else PREVIEW_MEMBER_EMAIL
+    if target_email not in {
+        PREVIEW_MEMBER_EMAIL,
+        PREVIEW_INSTANCE_ADMIN_EMAIL,
+        PREVIEW_EMAIL,
+        PREVIEW_INVITEE_EMAIL,
+    }:
         raise HTTPException(status_code=404)
 
     result = await db.execute(select(User).where(User.email == target_email))

@@ -15,6 +15,10 @@ PREVIEW_EMAIL = "preview@example.com"
 PREVIEW_USER_NAME = "Preview User"
 PREVIEW_INVITEE_EMAIL = "preview-invitee@example.com"
 PREVIEW_INVITEE_NAME = "Preview Invitee"
+PREVIEW_INSTANCE_ADMIN_EMAIL = "listerine_admin@schaedler.rocks"
+PREVIEW_INSTANCE_ADMIN_NAME = "Listerine Admin"
+PREVIEW_MEMBER_EMAIL = "listerine@schaedler.rocks"
+PREVIEW_MEMBER_NAME = "Listerine User"
 PREVIEW_HOUSEHOLD_NAME = "Preview Household"
 PREVIEW_LIST_NAME = "Weekend Shop"
 UI_E2E_LIST_NAME = "Browser Test Shop"
@@ -100,13 +104,42 @@ async def _ensure_user(db: AsyncSession, *, email: str, display_name: str, is_ad
     return user
 
 
+async def _ensure_member(
+    db: AsyncSession, *, household_id, user_id, role: str = "member"
+) -> HouseholdMember:
+    result = await db.execute(
+        select(HouseholdMember).where(
+            HouseholdMember.household_id == household_id,
+            HouseholdMember.user_id == user_id,
+        )
+    )
+    member = result.scalar_one_or_none()
+    if member is None:
+        member = HouseholdMember(household_id=household_id, user_id=user_id, role=role)
+        db.add(member)
+        await db.flush()
+    elif member.role != role:
+        member.role = role
+        await db.flush()
+    return member
+
+
 async def _ensure_preview_user_and_household(db: AsyncSession) -> tuple[User, Household]:
-    user = await _ensure_user(
+    admin_user = await _ensure_user(
         db,
-        email=PREVIEW_EMAIL,
-        display_name=PREVIEW_USER_NAME,
+        email=PREVIEW_INSTANCE_ADMIN_EMAIL,
+        display_name=PREVIEW_INSTANCE_ADMIN_NAME,
         is_admin=True,
     )
+    user = await _ensure_user(
+        db,
+        email=PREVIEW_MEMBER_EMAIL,
+        display_name=PREVIEW_MEMBER_NAME,
+        is_admin=False,
+    )
+
+    # Keep backward-compatible preview identities available for local checks.
+    await _ensure_user(db, email=PREVIEW_EMAIL, display_name=PREVIEW_USER_NAME, is_admin=True)
 
     household_result = await db.execute(
         select(Household)
@@ -118,8 +151,11 @@ async def _ensure_preview_user_and_household(db: AsyncSession) -> tuple[User, Ho
         household = Household(name=PREVIEW_HOUSEHOLD_NAME, owner_user_id=user.id)
         db.add(household)
         await db.flush()
-        db.add(HouseholdMember(household_id=household.id, user_id=user.id, role="owner"))
-        await db.flush()
+
+    await _ensure_member(db, household_id=household.id, user_id=user.id, role="owner")
+
+    # Seeded instance admin should stay global-only and not be household-scoped.
+    await db.execute(delete(HouseholdMember).where(HouseholdMember.user_id == admin_user.id))
 
     return user, household
 
@@ -204,6 +240,17 @@ async def ensure_ui_e2e_seed_data(db: AsyncSession) -> None:
         display_name=PREVIEW_INVITEE_NAME,
         is_admin=False,
     )
+
+    # Ensure the seeded non-admin member is in every seeded household.
+    households_result = await db.execute(select(Household))
+    for existing_household in households_result.scalars().all():
+        role = "owner" if existing_household.owner_user_id == user.id else "member"
+        await _ensure_member(
+            db,
+            household_id=existing_household.id,
+            user_id=user.id,
+            role=role,
+        )
     grocery_list = await _ensure_list(db, household=household, user=user, name=UI_E2E_LIST_NAME)
 
     categories: dict[str, Category] = {}

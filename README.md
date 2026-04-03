@@ -33,7 +33,7 @@ The repo includes a seeded Playwright browser e2e flow in CI.
 That flow:
 
 - starts the app in `PREVIEW_MODE`
-- auto-seeds a demo household, a second invitee user, categories, and grocery items
+- auto-seeds a demo household plus deterministic preview users, categories, and grocery items
 - opens the app in Chromium with Playwright
 - verifies login gating, list interactions, websocket sync, and invite acceptance
 - records browser video and screenshots into the `browser-ui-e2e` artifact
@@ -54,6 +54,39 @@ For local browser UI e2e coverage:
 PREVIEW_MODE=true PREVIEW_SEED_DATA=true PREVIEW_UI_E2E_SEED_DATA=true DATABASE_URL=sqlite+aiosqlite:///./tmp-ui-e2e.db PYTHONPATH=. .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 PREVIEW_BASE_URL=http://127.0.0.1:8000 node scripts/run_ui_e2e.mjs
 ```
+
+### Seeded preview users
+
+When `PREVIEW_SEED_DATA=true` is enabled, the app ensures these users exist:
+
+- `listerine@schaedler.rocks` (non-admin): member/owner across seeded households
+- `listerine_admin@schaedler.rocks` (admin): instance admin only, intentionally not in seeded households
+- `preview@example.com` and `preview-invitee@example.com` remain for backward-compatible preview/e2e flows
+
+### Export passkeys from a running PR instance for seed updates
+
+If you register passkeys in a running PR instance and want to copy the credential data into seed fixtures, use:
+
+```bash
+DATABASE_URL='sqlite:///path/to/pr-instance.db' python scripts/export_seed_passkeys.py
+```
+
+For Postgres-backed PR instances, pass the Postgres URL instead:
+
+```bash
+DATABASE_URL='postgresql+psycopg://user:password@host:5432/dbname' python scripts/export_seed_passkeys.py
+```
+
+Optional flags:
+
+- `--email <address>` can be used multiple times to limit exported users
+- `--database-url <url>` overrides `DATABASE_URL`
+
+The script prints JSON with:
+
+- `passkey_credential_id`
+- `passkey_public_key_b64` (base64-encoded binary public key)
+- `passkey_sign_count`
 
 ## Run tests
 
